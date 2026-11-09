@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/feedback_service.dart';
+import '../../services/supabase_service.dart';
 
 class StudentFeedbackScreen extends StatelessWidget {
   const StudentFeedbackScreen({super.key});
@@ -11,7 +12,7 @@ class StudentFeedbackScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Submit Feedback"),
-        backgroundColor: const Color(0xFF800000), // Maroon color
+        backgroundColor: const Color(0xFF800000),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -34,17 +35,20 @@ class StudentFeedbackScreen extends StatelessWidget {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () async {
-                final feedback = feedbackController.text;
+                final feedback = feedbackController.text.trim();
                 if (feedback.isNotEmpty) {
+                  final email = SupabaseService.currentEmail ?? 'student';
                   await FeedbackService().submitFeedback(
-                    "student_id", // Replace with actual student ID from authentication
+                    email,
                     feedback,
                     "student",
                   );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Feedback submitted successfully!")),
-                  );
-                  feedbackController.clear();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Feedback submitted to Supabase successfully!")),
+                    );
+                    feedbackController.clear();
+                  }
                 }
               },
               child: const Text("Submit"),

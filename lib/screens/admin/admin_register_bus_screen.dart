@@ -1,10 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../services/supabase_service.dart';
 
 class AdminRegisterBusScreen extends StatefulWidget {
-  final String? busId; // Optional busId for editing
-  final String? busNumber; // Optional bus number for editing
-  final String? numberPlate; // Optional number plate for editing
+  final String? busId;
+  final String? busNumber;
+  final String? numberPlate;
 
   const AdminRegisterBusScreen({
     super.key,
@@ -21,11 +21,11 @@ class AdminRegisterBusScreen extends StatefulWidget {
 class _AdminRegisterBusScreenState extends State<AdminRegisterBusScreen> {
   final TextEditingController _busNumberController = TextEditingController();
   final TextEditingController _numberPlateController = TextEditingController();
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    // If editing, set initial values
     if (widget.busId != null) {
       _busNumberController.text = widget.busNumber ?? '';
       _numberPlateController.text = widget.numberPlate ?? '';
@@ -33,38 +33,51 @@ class _AdminRegisterBusScreenState extends State<AdminRegisterBusScreen> {
   }
 
   Future<void> _saveBus() async {
-    final busNumber = _busNumberController.text;
-    final numberPlate = _numberPlateController.text;
+    final busNumber = _busNumberController.text.trim();
+    final numberPlate = _numberPlateController.text.trim();
 
     if (busNumber.isNotEmpty && numberPlate.isNotEmpty) {
-      if (widget.busId != null) {
-        // Update bus if busId is passed (i.e., edit operation)
-        await FirebaseFirestore.instance
-            .collection('buses')
-            .doc(widget.busId)
-            .update({
-          'busNumber': busNumber,
-          'numberPlate': numberPlate,
-          'updatedAt': Timestamp.now(),
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bus updated successfully!')),
-        );
-      } else {
-        // Add new bus if busId is null (i.e., add operation)
-        await FirebaseFirestore.instance.collection('buses').add({
-          'busNumber': busNumber,
-          'numberPlate': numberPlate,
-          'createdAt': Timestamp.now(),
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bus added successfully!')),
-        );
+      setState(() => _isLoading = true);
+      try {
+        if (widget.busId != null) {
+          await SupabaseService.updateBus(
+            busId: widget.busId!,
+            busNumber: busNumber,
+            numberPlate: numberPlate,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Bus updated successfully in Supabase!')),
+            );
+          }
+        } else {
+          await SupabaseService.addBus(
+            busNumber: busNumber,
+            numberPlate: numberPlate,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Bus added successfully to Supabase!')),
+            );
+          }
+        }
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error saving bus: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
-      Navigator.pop(context); // Close the screen after saving
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields')),
+        const SnackBar(content: Text('Please fill in both fields')),
       );
     }
   }
@@ -73,33 +86,37 @@ class _AdminRegisterBusScreenState extends State<AdminRegisterBusScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.busId == null ? 'Add New Bus' : 'Edit Bus'),
+        title: Text(widget.busId == null ? 'Register New Bus' : 'Edit Bus'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // Space between the fields
             TextField(
               controller: _busNumberController,
               decoration: const InputDecoration(
-                labelText: 'Bus Number',
+                labelText: 'Bus Number (e.g. BUS-12)',
+                border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 20), // Adding space between fields
-
+            const SizedBox(height: 16),
             TextField(
               controller: _numberPlateController,
               decoration: const InputDecoration(
-                labelText: 'Number Plate',
+                labelText: 'Number Plate (e.g. KA-25-F-1234)',
+                border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 20), // Adding space between fields
-
-            ElevatedButton(
-              onPressed: _saveBus,
-              child: Text(widget.busId == null ? 'Add Bus' : 'Update Bus'),
-            ),
+            const SizedBox(height: 30),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: _saveBus,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                    ),
+                    child: Text(widget.busId == null ? 'Save Bus' : 'Update Bus'),
+                  ),
           ],
         ),
       ),

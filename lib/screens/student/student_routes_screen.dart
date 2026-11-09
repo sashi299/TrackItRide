@@ -1,6 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../../services/supabase_service.dart';
 
 class StudentRoutesScreen extends StatefulWidget {
   const StudentRoutesScreen({super.key});
@@ -10,141 +9,120 @@ class StudentRoutesScreen extends StatefulWidget {
 }
 
 class _StudentRoutesScreenState extends State<StudentRoutesScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  late Future<List<Map<String, dynamic>>> routes;
+  late Future<List<Map<String, dynamic>>> routesFuture;
 
   @override
   void initState() {
     super.initState();
-    routes = fetchRoutes();
-  }
-
-  Future<List<Map<String, dynamic>>> fetchRoutes() async {
-    QuerySnapshot routeSnapshot = await _firestore.collection('routes').get();
-
-    List<Map<String, dynamic>> fetchedRoutes = routeSnapshot.docs.map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      return {
-        'id': doc.id,
-        'route': data['route'] ?? 'Unnamed Route',
-        'trips': data['trips'] ?? {},
-      };
-    }).toList();
-
-    fetchedRoutes.sort((a, b) => a['route'].compareTo(b['route']));
-    return fetchedRoutes;
-  }
-
-  // Function to parse coordinates from a comma-separated string into LatLng
-  List<LatLng> parseCoordinates(String coordinates) {
-    List<String> coords = coordinates.split(',').map((e) => e.trim()).toList();
-    return coords.length >= 2
-        ? [LatLng(double.parse(coords[0]), double.parse(coords[1]))]
-        : [];
+    routesFuture = SupabaseService.getRoutes();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Student Routes'),
+        title: const Text('Campus Bus Routes'),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: routes,
+        future: routesFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No routes available.'));
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error loading routes: ${snapshot.error}'));
           }
 
-          var fetchedRoutes = snapshot.data!;
+          final routes = snapshot.data ?? [];
+          if (routes.isEmpty) {
+            return const Center(child: Text('No routes registered in Supabase.'));
+          }
 
           return ListView.builder(
-            itemCount: fetchedRoutes.length,
+            itemCount: routes.length,
+            padding: const EdgeInsets.all(12.0),
             itemBuilder: (context, index) {
-              final route = fetchedRoutes[index];
-              List<LatLng> polylineCoordinates = [];
-
-              // Parse coordinates for all trips
-              route['trips'].forEach((tripKey, tripData) {
-                for (var stop in tripData) {
-                  // Parse the coordinates string for each stop
-                  var coords = stop['coordinates'];
-                  polylineCoordinates.addAll(parseCoordinates(coords));
-                }
-              });
-
+              final route = routes[index];
               return Card(
-                margin: const EdgeInsets.all(10),
+                elevation: 3,
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ExpansionTile(
-                  title: Text(route['route'], style: const TextStyle(fontSize: 18)),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Trip 1', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                for (var stop in route['trips']['trip1'] ?? [])
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(child: Text(stop['stop'], style: const TextStyle(fontSize: 14))),
-                                      Expanded(child: Text(stop['timing'], style: const TextStyle(fontSize: 14))),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const VerticalDivider(width: 20),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Trip 2', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                for (var stop in route['trips']['trip2'] ?? [])
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(child: Text(stop['stop'], style: const TextStyle(fontSize: 14))),
-                                      Expanded(child: Text(stop['timing'], style: const TextStyle(fontSize: 14))),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.shade100,
+                    child: Text(
+                      route['code'] ?? 'R',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
                     ),
-                    SizedBox(
-                      height: 300,
-                      child: GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: polylineCoordinates.isNotEmpty
-                              ? polylineCoordinates.first
-                              : const LatLng(0, 0),
-                          zoom: 12,
-                        ),
-                        polylines: {
-                          if (polylineCoordinates.isNotEmpty)
-                            Polyline(
-                              polylineId: PolylineId(route['id']),
-                              points: polylineCoordinates,
-                              color: Colors.blue,
-                              width: 4,
-                            ),
-                        },
-                        markers: Set<Marker>.from(
-                          polylineCoordinates.map((latLng) => Marker(
-                            markerId: MarkerId(latLng.toString()),
-                            position: latLng,
-                          )),
-                        ),
-                      ),
+                  ),
+                  title: Text(
+                    route['name'] ?? 'Route',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  subtitle: Text('Code: ${route['code'] ?? 'N/A'}'),
+                  children: [
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: SupabaseService.getStopsForRoute(route['id']),
+                      builder: (context, stopSnapshot) {
+                        if (stopSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        final stops = stopSnapshot.data ?? [];
+                        if (stops.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: Text('No stops configured for this route.'),
+                          );
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Scheduled Stops:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              ...stops.map((stop) => Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                    child: Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 12,
+                                          backgroundColor: Colors.blue.shade700,
+                                          child: Text(
+                                            '${stop['sequence_no']}',
+                                            style: const TextStyle(color: Colors.white, fontSize: 11),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            stop['name'] ?? 'Stop',
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                        Text(
+                                          stop['scheduled_morning'] ?? '',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

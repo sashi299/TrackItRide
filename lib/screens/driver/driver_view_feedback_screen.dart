@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../shared/theme.dart'; // Import AppTheme for custom colors
+import '../../services/supabase_service.dart';
+import '../../shared/theme.dart';
 
 class DriverViewFeedbackScreen extends StatelessWidget {
   const DriverViewFeedbackScreen({super.key});
@@ -12,45 +12,34 @@ class DriverViewFeedbackScreen extends StatelessWidget {
         title: const Text('View Feedback'),
         backgroundColor: AppTheme.primaryColor,
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('feedbacks') // Fetch from 'feedbacks' collection
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: SupabaseService.getFeedbacks(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError) {
-            return const Center(child: Text('Error loading feedback.'));
+          final feedbackList = snapshot.data ?? [];
+          if (feedbackList.isEmpty) {
+            return const Center(child: Text('No feedback recorded yet.'));
           }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No feedback available.'));
-          }
-
-          final feedbackList = snapshot.data!.docs;
 
           return ListView.builder(
             itemCount: feedbackList.length,
+            padding: const EdgeInsets.all(12.0),
             itemBuilder: (context, index) {
-              final feedback = feedbackList[index];
-              final feedbackText = feedback['feedback'] ?? 'No feedback provided.';
-              final email = feedback['email'] ?? 'Anonymous';
-              final timestamp = feedback['timestamp']?.toDate().toString() ?? 'Unknown';
+              final item = feedbackList[index];
+              final meta = item['metadata_json'] is Map ? item['metadata_json'] : {};
+              final feedbackText = meta['feedback'] ?? item['action'] ?? 'Feedback';
+              final email = meta['email'] ?? item['entity_id'] ?? 'Anonymous';
+              final timestamp = item['created_at']?.toString() ?? '';
 
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                margin: const EdgeInsets.symmetric(vertical: 6.0),
                 child: ListTile(
+                  leading: const Icon(Icons.comment, color: Colors.blue),
                   title: Text(feedbackText),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('From: $email', style: TextStyle(color: Colors.grey[600])),
-                      Text('Date: $timestamp', style: TextStyle(color: Colors.grey[600])),
-                    ],
-                  ),
+                  subtitle: Text('From: $email\nDate: $timestamp'),
                 ),
               );
             },

@@ -1,6 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../../services/supabase_service.dart';
 
 class AdminRouteManagementScreen extends StatefulWidget {
   const AdminRouteManagementScreen({super.key});
@@ -12,319 +11,203 @@ class AdminRouteManagementScreen extends StatefulWidget {
 
 class _AdminRouteManagementScreenState
     extends State<AdminRouteManagementScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  late GoogleMapController _mapController;
-  Map<String, Polyline> polylines = {};
+  late Future<List<Map<String, dynamic>>> _routesFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadAllPolylines(); // Load polylines for all routes on startup
+    _loadRoutes();
   }
 
-  // Fetch all routes
-  Future<List<Map<String, dynamic>>> fetchRoutes() async {
-    QuerySnapshot routeSnapshot = await _firestore.collection('routes').get();
-    List<Map<String, dynamic>> routes = routeSnapshot.docs.map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      return {
-        'id': doc.id,
-        'route': data['route'] ?? 'Unnamed Route',
-        'trips': data['trips'] ?? {'trip1': [], 'trip2': []},
-      };
-    }).toList();
-
-    routes.sort((a, b) {
-      final nameA = a['route'];
-      final nameB = b['route'];
-      final numberA = int.tryParse(nameA.replaceAll(RegExp(r'\D'), '')) ?? 0;
-      final numberB = int.tryParse(nameB.replaceAll(RegExp(r'\D'), '')) ?? 0;
-      return numberA.compareTo(numberB);
+  void _loadRoutes() {
+    setState(() {
+      _routesFuture = SupabaseService.getRoutes();
     });
-    return routes;
   }
 
-  // Load all polylines from Firestore
-  Future<void> _loadAllPolylines() async {
-    QuerySnapshot routeSnapshot = await _firestore.collection('routes').get();
-    for (var doc in routeSnapshot.docs) {
-      await updatePolyline(doc.id);
-    }
-  }
+  Future<void> _addRouteDialog() async {
+    final nameController = TextEditingController();
+    final codeController = TextEditingController();
 
-  // Add route to Firestore
-  void addRoute(String routeName) async {
-    if (routeName.isNotEmpty) {
-      await _firestore.collection('routes').add({
-        'route': routeName,
-        'trips': {
-          'trip1': [],
-          'trip2': [],
-        },
-      });
-      setState(() {});
-    }
-  }
-
-  // Edit route name
-  Future<void> editRouteName(String routeId, String newRouteName) async {
-    if (newRouteName.isNotEmpty) {
-      await _firestore.collection('routes').doc(routeId).update({
-        'route': newRouteName,
-      });
-      setState(() {});
-    }
-  }
-
-  // Add stop to a trip
-  void addStopToRoute(
-      String routeId, String tripId, String stopName, String timing, String coordinates) async {
-    if (stopName.isNotEmpty && timing.isNotEmpty && coordinates.isNotEmpty) {
-      try {
-        await _firestore.collection('routes').doc(routeId).update({
-          'trips.$tripId': FieldValue.arrayUnion([
-            {'stop': stopName, 'timing': timing, 'coordinates': coordinates}
-          ])
-        });
-        await updatePolyline(routeId); // Update the polyline
-      } catch (e) {
-        print('Error adding stop: $e');
-      }
-      setState(() {});
-    }
-  }
-
-  // Delete stop
-  void deleteStopFromRoute(String routeId, String tripId, Map<String, dynamic> stop) async {
-    try {
-      await _firestore.collection('routes').doc(routeId).update({
-        'trips.$tripId': FieldValue.arrayRemove([stop]),
-      });
-      await updatePolyline(routeId); // Update the polyline
-    } catch (e) {
-      print('Error deleting stop: $e');
-    }
-    setState(() {});
-  }
-
-  // Update polyline for a route
-  Future<void> updatePolyline(String routeId) async {
-    final routeDoc = await _firestore.collection('routes').doc(routeId).get();
-    if (routeDoc.exists) {
-      final data = routeDoc.data() as Map<String, dynamic>;
-      final trips = data['trips'] as Map<String, dynamic>? ?? {};
-      List<LatLng> polylinePoints = [];
-
-      for (var trip in trips.values) {
-        if (trip is List) {
-          for (var stop in trip) {
-            final coords = stop['coordinates']?.split(',') ?? [];
-            if (coords.length == 2) {
-              final lat = double.tryParse(coords[0].trim());
-              final lng = double.tryParse(coords[1].trim());
-              if (lat != null && lng != null) {
-                polylinePoints.add(LatLng(lat, lng));
-              }
-            }
-          }
-        }
-      }
-
-      if (polylinePoints.isNotEmpty) {
-        setState(() {
-          polylines[routeId] = Polyline(
-            polylineId: PolylineId(routeId),
-            points: polylinePoints,
-            color: Colors.blue,
-            width: 4,
-          );
-        });
-      }
-    }
-  }
-
-  // Show dialog to add a new route
-  Future<void> showAddRouteDialog() async {
-    String routeName = '';
-    await showDialog<void>(
+    await showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Add New Route'),
-          content: TextField(
-            decoration: const InputDecoration(hintText: 'Route Name'),
-            onChanged: (value) => routeName = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add New Route'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Route Name (e.g. North Gate - Campus)'),
             ),
-            TextButton(
-              onPressed: () {
-                if (routeName.isNotEmpty) {
-                  addRoute(routeName);
-                  Navigator.pop(context);
-                }
-              },
-              child: const Text('Add'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: codeController,
+              decoration: const InputDecoration(labelText: 'Route Code (e.g. R15)'),
             ),
           ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nameController.text.trim().isNotEmpty && codeController.text.trim().isNotEmpty) {
+                await SupabaseService.addRoute(
+                  routeName: nameController.text.trim(),
+                  routeCode: codeController.text.trim(),
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+                _loadRoutes();
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
   }
 
-  // Show dialog to add a new stop
-  Future<void> showAddStopDialog(String routeId, String tripId) async {
-    String stopName = '';
-    String stopTiming = '';
-    String coordinates = '';
-    await showDialog<void>(
+  Future<void> _addStopDialog(String routeId) async {
+    final nameController = TextEditingController();
+    final seqController = TextEditingController();
+    final latController = TextEditingController();
+    final lngController = TextEditingController();
+
+    await showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Add New Stop'),
-          content: Column(
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Stop to Route'),
+        content: SingleChildScrollView(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                decoration: const InputDecoration(hintText: 'Stop Name'),
-                onChanged: (value) => stopName = value,
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Stop Name'),
               ),
               TextField(
-                decoration: const InputDecoration(hintText: 'Timing (e.g., 08:30 AM)'),
-                onChanged: (value) => stopTiming = value,
+                controller: seqController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Sequence Number (1, 2, 3...)'),
               ),
               TextField(
-                decoration: const InputDecoration(
-                  hintText: 'Coordinates (e.g., 15.87961854303658, 74.52165434950857)',
-                ),
-                onChanged: (value) => coordinates = value,
+                controller: latController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Latitude (e.g. 12.9716)'),
+              ),
+              TextField(
+                controller: lngController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Longitude (e.g. 77.5946)'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (stopName.isNotEmpty && stopTiming.isNotEmpty && coordinates.isNotEmpty) {
-                  addStopToRoute(routeId, tripId, stopName, stopTiming, coordinates);
-                  Navigator.pop(context);
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final seq = int.tryParse(seqController.text.trim()) ?? 1;
+              final lat = double.tryParse(latController.text.trim()) ?? 0.0;
+              final lng = double.tryParse(lngController.text.trim()) ?? 0.0;
+
+              if (name.isNotEmpty && lat != 0.0 && lng != 0.0) {
+                await SupabaseService.addStop(
+                  routeId: routeId,
+                  name: name,
+                  sequenceNo: seq,
+                  latitude: lat,
+                  longitude: lng,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+                _loadRoutes();
+              }
+            },
+            child: const Text('Add Stop'),
+          ),
+        ],
+      ),
     );
+  }
+
+  Future<void> _deleteRoute(String routeId) async {
+    await SupabaseService.deleteRoute(routeId);
+    _loadRoutes();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Route Management')),
+      appBar: AppBar(
+        title: const Text('Route Management'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadRoutes,
+          ),
+        ],
+      ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: fetchRoutes(),
+        future: _routesFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No routes available.'));
+          final routes = snapshot.data ?? [];
+          if (routes.isEmpty) {
+            return const Center(child: Text('No routes configured. Tap + to add one.'));
           }
-
-          var routes = snapshot.data!;
 
           return ListView.builder(
             itemCount: routes.length,
+            padding: const EdgeInsets.all(8.0),
             itemBuilder: (context, index) {
               final route = routes[index];
-              final stops = route['trips']?['trip1'] ?? [];
-
               return Card(
-                margin: const EdgeInsets.all(10),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(route['route'], style: const TextStyle(fontSize: 18)),
-                        IconButton(
-                          onPressed: () =>
-                              showAddStopDialog(route['id'], 'trip1'),
-                          icon: const Icon(Icons.add),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    stops.isNotEmpty
-                        ? ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: stops.length,
-                            itemBuilder: (context, stopIndex) {
-                              final stop = stops[stopIndex];
-                              return ListTile(
-                                title: Text(stop['stop'] ?? 'Unknown Stop'),
-                                subtitle: Text(
-                                  'Timing: ${stop['timing'] ?? 'Unknown Timing'}\n'
-                                  'Coordinates: ${stop['coordinates'] ?? 'Unknown Coordinates'}',
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () => deleteStopFromRoute(
-                                    route['id'],
-                                    'trip1',
-                                    stop,
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                        : const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: Text('No stops added yet.'),
-                          ),
-                    SizedBox(
-                      height: 200,
-                      child: GoogleMap(
-                        initialCameraPosition: const CameraPosition(
-                          target: LatLng(15.87961854303658, 74.52165434950857),
-                          zoom: 10,
-                        ),
-                        onMapCreated: (controller) {
-                          _mapController = controller;
-                        },
-                        polylines: Set<Polyline>.of(
-                          polylines.values.where(
-                            (polyline) =>
-                                polyline.polylineId.value == route['id'],
-                          ),
-                        ),
-                        markers: stops
-                            .map((stop) {
-                              final coords = stop['coordinates']?.split(',');
-                              if (coords?.length == 2) {
-                                final lat = double.tryParse(coords![0]);
-                                final lng = double.tryParse(coords[1]);
-                                if (lat != null && lng != null) {
-                                  return Marker(
-                                    markerId: MarkerId(stop['stop']),
-                                    position: LatLng(lat, lng),
-                                  );
-                                }
-                              }
-                              return null;
-                            })
-                            .whereType<Marker>()
-                            .toSet(),
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                child: ExpansionTile(
+                  leading: CircleAvatar(child: Text(route['code'] ?? 'R')),
+                  title: Text(route['name'] ?? 'Route', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('Code: ${route['code']}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.add_location_alt, color: Colors.green),
+                        tooltip: 'Add Stop',
+                        onPressed: () => _addStopDialog(route['id']),
                       ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        tooltip: 'Delete Route',
+                        onPressed: () => _deleteRoute(route['id']),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: SupabaseService.getStopsForRoute(route['id']),
+                      builder: (context, snap) {
+                        final stops = snap.data ?? [];
+                        if (stops.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: Text('No stops added yet.'),
+                          );
+                        }
+                        return Column(
+                          children: stops
+                              .map((s) => ListTile(
+                                    dense: true,
+                                    leading: Text('#${s['sequence_no']}'),
+                                    title: Text(s['name']),
+                                    subtitle: Text('Lat: ${s['latitude']}, Lng: ${s['longitude']}'),
+                                  ))
+                              .toList(),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -334,7 +217,7 @@ class _AdminRouteManagementScreenState
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: showAddRouteDialog,
+        onPressed: _addRouteDialog,
         child: const Icon(Icons.add),
       ),
     );

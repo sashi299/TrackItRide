@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
 
@@ -18,27 +17,26 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
-  final _formKey = GlobalKey<FormState>(); // Form key for validation
+  final _formKey = GlobalKey<FormState>();
 
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
-
-  String? _phoneError;
+  bool _isLoading = false;
 
   bool isValidFullName(String name) {
-    return RegExp(r'^[A-Za-z]+(?: [A-Za-z]+)*$').hasMatch(name);
+    return RegExp(r'^[A-Za-z]+(?: [A-Za-z]+)*$').hasMatch(name.trim());
   }
 
   bool isValidPhoneNumber(String phone) {
-    return RegExp(r'^[0-9]{10}$').hasMatch(phone.replaceFirst('+91', ''));
+    return RegExp(r'^[0-9]{10}$').hasMatch(phone.replaceFirst('+91', '').trim());
   }
 
   bool isValidEmail(String email) {
-    return RegExp(r'^[a-zA-Z0-9._%+-]+@kletech\.ac\.in$').hasMatch(email);
+    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email.trim());
   }
 
   bool isValidPassword(String password) {
-    return RegExp(r'^(?=.*[A-Z])(?=.*\W)(?=.*[a-z]).{8,}$').hasMatch(password);
+    return password.length >= 6;
   }
 
   bool doPasswordsMatch() {
@@ -47,35 +45,31 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
 
   Future<void> _signUp() async {
     if (_formKey.currentState?.validate() ?? false) {
+      setState(() => _isLoading = true);
       try {
-        UserCredential userCredential = await FirebaseAuth.instance
-            .createUserWithEmailAndPassword(
-                email: emailController.text, password: passwordController.text);
+        await SupabaseService.signUp(
+          email: emailController.text.trim(),
+          password: passwordController.text.trim(),
+          role: 'student',
+          name: nameController.text.trim(),
+          phone: phoneController.text.trim(),
+        );
 
-        await FirebaseFirestore.instance
-            .collection('students')
-            .doc(userCredential.user?.uid)
-            .set({
-          'name': nameController.text,
-          'phone': phoneController.text,
-          'email': emailController.text,
-          'createdAt': Timestamp.now(),
-        });
+        if (!mounted) return;
 
-        // Show dialog after successful signup
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Sign Up Successful'),
-            content: const Text('Your account has been created successfully!'),
+            content: const Text('Your student account has been created in Supabase!'),
             actions: [
               TextButton(
                 onPressed: () {
-                  Navigator.of(context).pop(); // Close the dialog
+                  Navigator.of(context).pop();
                   Navigator.pushNamedAndRemoveUntil(
                     context,
-                    '/login', // Navigate to the login screen
-                    (route) => false, // Remove all previous routes
+                    '/student_login',
+                    (route) => false,
                   );
                 },
                 child: const Text('OK'),
@@ -83,10 +77,19 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
             ],
           ),
         );
-      } on FirebaseAuthException catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Signup failed: ${e.message}')),
-        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Signup failed: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }
@@ -104,72 +107,58 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CustomTextField(
-                  label: 'Full Name (e.g., Xxxx Xxxx)',
+                  label: 'Full Name',
                   controller: nameController,
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'^[A-Za-z\s]*$')),
                   ],
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
+                    if (value == null || value.trim().isEmpty) {
                       return 'Full Name is required';
-                    } else if (!isValidFullName(value)) {
-                      return 'Full Name must contain only alphabets and spaces';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  label: 'Phone Number (Fixed +91, enter 10 digits)',
+                  label: 'Phone Number',
                   controller: phoneController,
                   keyboardType: TextInputType.phone,
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'^[0-9+]*$')),
                     LengthLimitingTextInputFormatter(13),
                   ],
-                  onChanged: (value) {
-                    setState(() {
-                      if (!isValidPhoneNumber(value)) {
-                        _phoneError =
-                            'Phone Number must start with +91 and be followed by 10 digits';
-                      } else {
-                        _phoneError = null;
-                      }
-                    });
-                  },
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
+                    if (value == null || value.trim().isEmpty) {
                       return 'Phone Number is required';
-                    } else if (_phoneError != null) {
-                      return _phoneError;
+                    } else if (!isValidPhoneNumber(value)) {
+                      return 'Enter a valid 10-digit phone number';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  label: 'Email (e.g., 02fe23bcs431@kletech.ac.in)',
+                  label: 'Email Address',
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
+                    if (value == null || value.trim().isEmpty) {
                       return 'Email is required';
                     } else if (!isValidEmail(value)) {
-                      return 'Email must end with @kletech.ac.in';
+                      return 'Enter a valid email address';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  label: 'Password (At least 1 uppercase, 1 special character)',
+                  label: 'Password (min 6 characters)',
                   controller: passwordController,
                   obscureText: !_passwordVisible,
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _passwordVisible
-                          ? Icons.visibility_off
-                          : Icons.visibility,
+                      _passwordVisible ? Icons.visibility_off : Icons.visibility,
                       color: Colors.grey,
                     ),
                     onPressed: () {
@@ -182,7 +171,7 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Password is required';
                     } else if (!isValidPassword(value)) {
-                      return 'Password must have uppercase, special character, lowercase, and be 8+ characters';
+                      return 'Password must be at least 6 characters';
                     }
                     return null;
                   },
@@ -194,9 +183,7 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
                   obscureText: !_confirmPasswordVisible,
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _confirmPasswordVisible
-                          ? Icons.visibility_off
-                          : Icons.visibility,
+                      _confirmPasswordVisible ? Icons.visibility_off : Icons.visibility,
                       color: Colors.grey,
                     ),
                     onPressed: () {
@@ -215,14 +202,16 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
                   },
                 ),
                 const SizedBox(height: 30),
-                CustomButton(
-                  label: 'Sign Up',
-                  onPressed: _signUp,
-                  color: const Color.fromARGB(119, 20, 80, 198),
-                  textColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : CustomButton(
+                        label: 'Sign Up',
+                        onPressed: _signUp,
+                        color: const Color.fromARGB(255, 20, 80, 198),
+                        textColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
               ],
             ),
           ),

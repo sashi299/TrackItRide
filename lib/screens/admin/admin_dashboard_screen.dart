@@ -1,23 +1,26 @@
 import 'package:flutter/material.dart';
+import '../../services/supabase_service.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
-  // Method to handle logout
-  void _logout(BuildContext context) {
-    // Logic for logging out, e.g., clearing tokens or user data
-    Navigator.pushReplacementNamed(context, '/admin_login');
+  Future<void> _logout(BuildContext context) async {
+    await SupabaseService.signOut();
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, '/admin_login');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
+        title: const Text('Admin Dashboard (Supabase)'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => _logout(context),
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -25,63 +28,69 @@ class AdminDashboardScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         child: ListView(
           children: [
-            // Card 1: Admin Manage Buses
             Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               child: ListTile(
                 title: const Text('Manage Buses'),
-                leading: const Icon(Icons.directions_bus),
+                subtitle: const Text('Add, edit, and delete fleet vehicles'),
+                leading: const Icon(Icons.directions_bus, color: Colors.blue),
                 onTap: () {
                   Navigator.pushNamed(context, '/admin_manage_buses');
                 },
               ),
             ),
-            
-            // Card 2: Admin Manage Drivers
             Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               child: ListTile(
                 title: const Text('Manage Drivers'),
-                leading: const Icon(Icons.person),
+                subtitle: const Text('Driver rosters and phone records'),
+                leading: const Icon(Icons.person, color: Colors.green),
                 onTap: () {
                   Navigator.pushNamed(context, '/admin_manage_drivers');
                 },
               ),
             ),
-
-            // Card 3: Admin Route Management
             Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               child: ListTile(
                 title: const Text('Route Management'),
-                leading: const Icon(Icons.route),
+                subtitle: const Text('Create and manage bus routes and stops'),
+                leading: const Icon(Icons.route, color: Colors.orange),
                 onTap: () {
                   Navigator.pushNamed(context, '/admin_route_management');
                 },
               ),
             ),
-            
-            // Card 4: Admin Analytics
-            Card(
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              child: ListTile(
-                title: const Text('Analytics'),
-                leading: const Icon(Icons.analytics),
-                onTap: () {
-                  Navigator.pushNamed(context, '/admin_analytics');
-                },
-              ),
-            ),
-            
-            // Card 5: Bus & Route Assignment
             Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               child: ListTile(
                 title: const Text('Bus & Route Assignment'),
                 subtitle: const Text('Assign buses and routes to drivers'),
-                leading: const Icon(Icons.assignment),
+                leading: const Icon(Icons.assignment, color: Colors.purple),
                 onTap: () {
                   Navigator.pushNamed(context, '/assign_bus_route');
+                },
+              ),
+            ),
+            Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: ListTile(
+                title: const Text('System Announcements'),
+                subtitle: const Text('Send alerts to student & driver apps'),
+                leading: const Icon(Icons.campaign, color: Colors.amber),
+                onTap: () {
+                  Navigator.pushNamed(context, '/admin_analytics');
+                },
+              ),
+            ),
+            Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: ListTile(
+                title: const Text('Student & Driver Feedback'),
+                subtitle: const Text('View submitted reviews and issues'),
+                leading: const Icon(Icons.feedback, color: Colors.teal),
+                onTap: () {
+                  Navigator.pushNamed(context, '/admin_view_feedback');
                 },
               ),
             ),

@@ -1,70 +1,67 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../shared/theme.dart'; // Import AppTheme for custom colors
+import '../../services/supabase_service.dart';
+import '../../shared/theme.dart';
 
-class AdminViewFeedbackScreen extends StatelessWidget {
+class AdminViewFeedbackScreen extends StatefulWidget {
   const AdminViewFeedbackScreen({super.key});
 
-  // Function to delete feedback from Firestore
-  Future<void> _deleteFeedback(String feedbackId) async {
-    try {
-      await FirebaseFirestore.instance.collection('feedbacks').doc(feedbackId).delete();
-    } catch (e) {
-      print('Error deleting feedback: $e');
-    }
+  @override
+  State<AdminViewFeedbackScreen> createState() => _AdminViewFeedbackScreenState();
+}
+
+class _AdminViewFeedbackScreenState extends State<AdminViewFeedbackScreen> {
+  late Future<List<Map<String, dynamic>>> _feedbacksFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFeedback();
+  }
+
+  void _loadFeedback() {
+    setState(() {
+      _feedbacksFuture = SupabaseService.getFeedbacks();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('View Feedback'),
+        title: const Text('User Feedback (Supabase)'),
         backgroundColor: AppTheme.primaryColor,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadFeedback),
+        ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('feedbacks') // Fetch from 'feedbacks' collection
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _feedbacksFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError) {
-            return const Center(child: Text('Error loading feedback.'));
+          final feedbackList = snapshot.data ?? [];
+          if (feedbackList.isEmpty) {
+            return const Center(child: Text('No feedback recorded yet in Supabase.'));
           }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No feedback available.'));
-          }
-
-          final feedbackList = snapshot.data!.docs;
 
           return ListView.builder(
             itemCount: feedbackList.length,
+            padding: const EdgeInsets.all(12.0),
             itemBuilder: (context, index) {
-              final feedback = feedbackList[index];
-              final feedbackId = feedback.id; // Get the feedback document ID
-              final feedbackText = feedback['feedback'] ?? 'No feedback provided.';
-              final email = feedback['email'] ?? 'Anonymous';
-              final timestamp = feedback['timestamp']?.toDate().toString() ?? 'Unknown';
+              final item = feedbackList[index];
+              final meta = item['metadata_json'] is Map ? item['metadata_json'] : {};
+              final feedbackText = meta['feedback'] ?? item['action'] ?? 'Feedback';
+              final email = meta['email'] ?? item['entity_id'] ?? 'Anonymous';
+              final timestamp = item['created_at']?.toString() ?? '';
 
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                margin: const EdgeInsets.symmetric(vertical: 6.0),
                 child: ListTile(
+                  leading: const Icon(Icons.rate_review, color: Colors.blue),
                   title: Text(feedbackText),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('From: $email', style: TextStyle(color: Colors.grey[600])),
-                      Text('Date: $timestamp', style: TextStyle(color: Colors.grey[600])),
-                    ],
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteFeedback(feedbackId), // Delete the feedback
-                  ),
+                  subtitle: Text('From: $email\nSubmitted: $timestamp'),
                 ),
               );
             },

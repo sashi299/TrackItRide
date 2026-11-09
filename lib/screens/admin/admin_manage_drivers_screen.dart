@@ -1,7 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'admin_register_driver_screen.dart'; // Import the registration screen
-import 'admin_driver_edit_screen.dart' as drivers_screen; // Alias for the edit screen
+import '../../services/supabase_service.dart';
+import 'admin_register_driver_screen.dart';
+import 'admin_driver_edit_screen.dart';
 
 class AdminManageDriversScreen extends StatefulWidget {
   const AdminManageDriversScreen({super.key});
@@ -12,25 +12,38 @@ class AdminManageDriversScreen extends StatefulWidget {
 }
 
 class _AdminManageDriversScreenState extends State<AdminManageDriversScreen> {
-  // Function to delete a driver
+  late Future<List<Map<String, dynamic>>> _driversFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDrivers();
+  }
+
+  void _loadDrivers() {
+    setState(() {
+      _driversFuture = SupabaseService.getDrivers();
+    });
+  }
+
   Future<void> deleteDriver(String driverId) async {
     try {
-      await FirebaseFirestore.instance
-          .collection('drivers')
-          .doc(driverId)
-          .delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Driver deleted successfully!')),
-      );
+      await SupabaseService.deleteDriver(driverId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Driver removed successfully from Supabase!')),
+        );
+        _loadDrivers();
+      }
     } catch (e) {
-      print('Error deleting driver: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error deleting driver. Please try again.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting driver: ${e.toString()}')),
+        );
+      }
     }
   }
 
-  // Confirm delete action before deletion
   void _confirmDeleteDriver(String driverId) {
     showDialog(
       context: context,
@@ -39,17 +52,15 @@ class _AdminManageDriversScreenState extends State<AdminManageDriversScreen> {
         content: const Text('Are you sure you want to delete this driver?'),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-            },
+            onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
-              deleteDriver(driverId);
               Navigator.of(ctx).pop();
+              deleteDriver(driverId);
             },
-            child: const Text('Delete'),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -61,67 +72,67 @@ class _AdminManageDriversScreenState extends State<AdminManageDriversScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Drivers'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadDrivers,
+          ),
+        ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('drivers')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _driversFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
-            return const Center(child: Text('Error loading drivers.'));
+            return Center(child: Text('Error loading drivers: ${snapshot.error}'));
           }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No drivers available.'));
+          final driverList = snapshot.data ?? [];
+          if (driverList.isEmpty) {
+            return const Center(child: Text('No drivers found in Supabase. Tap + to register one.'));
           }
-
-          final driverList = snapshot.data!.docs;
 
           return ListView.builder(
             itemCount: driverList.length,
+            padding: const EdgeInsets.all(8.0),
             itemBuilder: (context, index) {
               final driver = driverList[index];
-              final driverId = driver.id;
-              final name = driver['name'];
-              final email = driver['email'];
-              final phone = driver['phone'];
-              final licenseNumber = driver['licenseNumber'];
+              final driverId = driver['id'];
+              final name = driver['name'] ?? 'Driver';
+              final email = driver['email'] ?? '';
+              final phone = driver['phone'] ?? '+91';
 
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                 child: ListTile(
-                  title: Text(name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Email: $email', style: TextStyle(color: Colors.grey[600])),
-                      Text('Phone: $phone', style: TextStyle(color: Colors.grey[600])),
-                      Text('License: $licenseNumber', style: TextStyle(color: Colors.grey[600])),
-                    ],
+                  leading: const CircleAvatar(
+                    backgroundColor: Colors.green,
+                    child: Icon(Icons.person, color: Colors.white),
                   ),
+                  title: Text(name),
+                  subtitle: Text('Email: $email\nPhone: $phone'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () {
-                          Navigator.push(
+                        onPressed: () async {
+                          await Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => drivers_screen.AdminDriverEditScreen(
+                              builder: (context) => AdminDriverEditScreen(
                                 driverId: driverId,
                                 name: name,
                                 email: email,
                                 phone: phone,
-                                licenseNumber: licenseNumber,
+                                licenseNumber: 'DL-ACTIVE',
                               ),
                             ),
                           );
+                          _loadDrivers();
                         },
                       ),
                       IconButton(
@@ -137,11 +148,12 @@ class _AdminManageDriversScreenState extends State<AdminManageDriversScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const AdminRegisterDriverScreen()),
           );
+          _loadDrivers();
         },
         child: const Icon(Icons.add),
       ),

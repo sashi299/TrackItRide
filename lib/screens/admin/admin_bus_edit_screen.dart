@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../services/supabase_service.dart';
 
 class AdminBusEditScreen extends StatefulWidget {
   final String busId;
@@ -20,6 +20,7 @@ class AdminBusEditScreen extends StatefulWidget {
 class _AdminBusEditScreenState extends State<AdminBusEditScreen> {
   final _busNumberController = TextEditingController();
   final _numberPlateController = TextEditingController();
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -29,8 +30,8 @@ class _AdminBusEditScreenState extends State<AdminBusEditScreen> {
   }
 
   Future<void> _updateBus() async {
-    final busNumber = _busNumberController.text;
-    final numberPlate = _numberPlateController.text;
+    final busNumber = _busNumberController.text.trim();
+    final numberPlate = _numberPlateController.text.trim();
 
     if (busNumber.isEmpty || numberPlate.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -39,22 +40,30 @@ class _AdminBusEditScreenState extends State<AdminBusEditScreen> {
       return;
     }
 
+    setState(() => _isLoading = true);
     try {
-      await FirebaseFirestore.instance.collection('buses').doc(widget.busId).update({
-        'busNumber': busNumber,
-        'numberPlate': numberPlate,
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bus updated successfully!')),
+      await SupabaseService.updateBus(
+        busId: widget.busId,
+        busNumber: busNumber,
+        numberPlate: numberPlate,
       );
 
-      Navigator.of(context).pop(); // Navigate back after successful bus update
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bus updated successfully in Supabase!')),
+        );
+        Navigator.of(context).pop();
+      }
     } catch (e) {
-      print('Error updating bus: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error updating bus. Please try again.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating bus: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -67,21 +76,30 @@ class _AdminBusEditScreenState extends State<AdminBusEditScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
               controller: _busNumberController,
-              decoration: const InputDecoration(labelText: 'Bus Number'),
+              decoration: const InputDecoration(
+                labelText: 'Bus Number',
+                border: OutlineInputBorder(),
+              ),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _numberPlateController,
-              decoration: const InputDecoration(labelText: 'Number Plate'),
+              decoration: const InputDecoration(
+                labelText: 'Number Plate',
+                border: OutlineInputBorder(),
+              ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _updateBus,
-              child: const Text('Update Bus'),
-            ),
+            const SizedBox(height: 30),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: _updateBus,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('Update Bus'),
+                  ),
           ],
         ),
       ),

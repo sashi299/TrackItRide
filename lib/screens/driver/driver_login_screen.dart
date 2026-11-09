@@ -1,9 +1,8 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
-import '../../shared/theme.dart'; // Import AppTheme for consistent theming
+import '../../shared/theme.dart';
 
 class DriverLoginScreen extends StatefulWidget {
   const DriverLoginScreen({super.key});
@@ -17,78 +16,82 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   final passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _passwordVisible = false;
-  bool _isLoading = false; // For showing loading indicator
+  bool _isLoading = false;
 
-  // Login function for drivers
   Future<void> _loginDriver() async {
     if (_formKey.currentState?.validate() ?? false) {
-      setState(() {
-        _isLoading = true; // Show loading indicator
-      });
+      setState(() => _isLoading = true);
+
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
 
       try {
-        // Sign in the user using email and password
-        UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: emailController.text.trim(),
-          password: passwordController.text.trim(),
+        await SupabaseService.signIn(email: email, password: password);
+        final assignment = await SupabaseService.getDriverAssignment(email);
+
+        if (!mounted) return;
+
+        Navigator.pushReplacementNamed(
+          context,
+          '/driver_dashboard',
+          arguments: {
+            'driverEmail': email,
+            'busNumber': assignment?['busNumber'] ?? 'BUS-12',
+            'routeName': assignment?['routeName'] ?? 'Main Campus Route',
+            'tripId': assignment?['tripId'] ?? '',
+          },
         );
+      } catch (e) {
+        if (mounted) {
+          final errStr = e.toString();
+          String message = 'Login failed: $errStr';
+          SnackBarAction? action;
 
-        // Fetch the driver details from Firestore based on email
-        final driverEmail = userCredential.user?.email ?? '';
-        
-        // Debug: Ensure we are logging the correct user email
-        print('Logged in as: $driverEmail');
+          if (errStr.contains('email_not_confirmed')) {
+            message = 'Email not confirmed yet! Please check your Gmail inbox (including Spam folder) or tap RESEND.';
+            action = SnackBarAction(
+              label: 'RESEND',
+              textColor: Colors.yellow,
+              onPressed: () async {
+                try {
+                  await SupabaseService.resendConfirmation(email: email);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Confirmation email resent! Please check your Gmail.'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (resendErr) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to resend: $resendErr'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+            );
+          } else if (errStr.contains('Invalid login credentials')) {
+            message = 'Invalid email or password. Please verify your credentials.';
+          }
 
-        QuerySnapshot assignmentSnapshot = await FirebaseFirestore.instance
-            .collection('drivers') // Changed to 'drivers' collection
-            .where('email', isEqualTo: driverEmail)
-            .limit(1) // Assuming one assignment per driver
-            .get();
-
-        // Debug: Check if the assignmentSnapshot is returned correctly
-        if (assignmentSnapshot.docs.isNotEmpty) {
-          final data = assignmentSnapshot.docs.first.data() as Map<String, dynamic>;
-
-          // Extract the bus and route details from the assignment
-          final busNumber = data['busNumber'] ?? 'N/A';
-          final routeName = data['routeName'] ?? 'N/A';
-
-          // Debug: Check bus and route details
-          print('Bus Number: $busNumber');
-          print('Route Name: $routeName');
-
-          // Navigate to the driver dashboard with the bus and route data
-          Navigator.pushReplacementNamed(
-            context,
-            '/driver_dashboard',
-            arguments: {
-              'driverEmail': driverEmail,
-              'busNumber': busNumber,
-              'routeName': routeName,
-            },
-          );
-        } else {
-          // If no assignment found for the driver
-          setState(() {
-            _isLoading = false; // Hide loading indicator
-          });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No assignment found for this driver.'),
+            SnackBar(
+              content: Text(message),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 8),
+              action: action,
             ),
           );
         }
-      } on FirebaseAuthException catch (e) {
-        setState(() {
-          _isLoading = false; // Hide loading indicator
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Login failed: ${e.message}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }
@@ -98,7 +101,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Driver Login'),
-        backgroundColor: AppTheme.primaryColor, // Maroon theme
+        backgroundColor: AppTheme.primaryColor,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -118,25 +121,18 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Please log in to access your dashboard.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black87,
-                  ),
+                  'Please log in to stream GPS and view your route.',
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
                 ),
                 const SizedBox(height: 32),
-                
-                // Email input field
                 CustomTextField(
                   label: 'Email',
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
                   validator: (value) =>
-                      value == null || value.isEmpty ? 'Email is required' : null,
+                      value == null || value.trim().isEmpty ? 'Email is required' : null,
                 ),
                 const SizedBox(height: 16),
-                
-                // Password input field
                 CustomTextField(
                   label: 'Password',
                   controller: passwordController,
@@ -156,20 +152,15 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       value == null || value.isEmpty ? 'Password is required' : null,
                 ),
                 const SizedBox(height: 30),
-
-                // Show loading indicator or login button
                 _isLoading
-                    ? const Center(child: CircularProgressIndicator()) // Show loading indicator
+                    ? const Center(child: CircularProgressIndicator())
                     : CustomButton(
                         label: 'Login',
                         onPressed: _loginDriver,
                         color: AppTheme.primaryColor,
                         textColor: Colors.white,
                       ),
-                
                 const SizedBox(height: 10),
-
-                // Forgot password link
                 Center(
                   child: TextButton(
                     onPressed: () {
@@ -177,14 +168,10 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                     },
                     child: const Text(
                       'Forgot Password?',
-                      style: TextStyle(
-                        color: AppTheme.primaryColor,
-                      ),
+                      style: TextStyle(color: AppTheme.primaryColor),
                     ),
                   ),
                 ),
-
-                // Sign up link
                 Center(
                   child: TextButton(
                     onPressed: () {
@@ -192,9 +179,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                     },
                     child: const Text(
                       'Don\'t have an account? Sign Up',
-                      style: TextStyle(
-                        color: AppTheme.primaryColor,
-                      ),
+                      style: TextStyle(color: AppTheme.primaryColor),
                     ),
                   ),
                 ),

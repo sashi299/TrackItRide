@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/supabase_service.dart';
 import 'student_search_screen.dart';
 import 'student_location_screen.dart';
 import 'student_routes_screen.dart';
 import 'student_notifications_screen.dart';
-import '../../shared/theme.dart'; // Import AppTheme for custom colors
+import '../../shared/theme.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -17,31 +16,32 @@ class StudentHomeScreen extends StatefulWidget {
 class _StudentHomeScreenState extends State<StudentHomeScreen> {
   int _selectedIndex = 0;
 
-  // Widget options for the bottom navigation
   static final List<Widget> _widgetOptions = <Widget>[
-    const HomePageContent(), // Custom Home Page Content with Feedback Option
-    const StudentSearchScreen(), // The Search Screen
-    const StudentLocationScreen(), // The Location Screen
-    const StudentRoutesScreen(), // The Routes Screen
-    const StudentNotificationsScreen(), // The Notifications Screen
+    const HomePageContent(),
+    const StudentSearchScreen(),
+    const StudentLocationScreen(),
+    const StudentRoutesScreen(),
+    const StudentNotificationsScreen(),
   ];
 
-  // Bottom navigation item selection
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
 
-  // Logout functionality
   Future<void> _logout() async {
     try {
-      await FirebaseAuth.instance.signOut(); // Sign out from Firebase
-      Navigator.pushNamedAndRemoveUntil(context, '/student_login', (route) => false); // Navigate to login
+      await SupabaseService.signOut();
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/student_login', (route) => false);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logout Failed: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Logout Failed: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -50,7 +50,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("TrackItRide - Student Dashboard"),
-        backgroundColor: AppTheme.primaryColor, // Use custom maroon color
+        backgroundColor: AppTheme.primaryColor,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -83,7 +83,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
           ),
         ],
       ),
-      body: _widgetOptions[_selectedIndex], // Display the selected screen
+      body: _widgetOptions[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
@@ -92,18 +92,17 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.directions_bus), label: 'Routes'),
           BottomNavigationBarItem(icon: Icon(Icons.notifications), label: 'Notifications'),
         ],
-        currentIndex: _selectedIndex, // Track selected index
-        selectedItemColor: Colors.white, // Selected item color
-        unselectedItemColor: Colors.white70, // Unselected item color
-        backgroundColor: AppTheme.primaryColor, // Maroon background for BottomNavigationBar
-        onTap: _onItemTapped, // Set the on tap function to change views
-        type: BottomNavigationBarType.fixed, // To ensure all icons are visible
+        currentIndex: _selectedIndex,
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white70,
+        backgroundColor: AppTheme.primaryColor,
+        onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
       ),
     );
   }
 }
 
-// Custom Home Page Content Widget
 class HomePageContent extends StatelessWidget {
   const HomePageContent({super.key});
 
@@ -112,7 +111,7 @@ class HomePageContent extends StatelessWidget {
     final feedbackController = TextEditingController();
 
     Future<void> submitFeedback() async {
-      final feedback = feedbackController.text;
+      final feedback = feedbackController.text.trim();
       if (feedback.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Feedback cannot be empty!')),
@@ -121,44 +120,36 @@ class HomePageContent extends StatelessWidget {
       }
 
       try {
-        // Save feedback to Firestore
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await FirebaseFirestore.instance.collection('feedbacks').add({
-            'feedback': feedback,
-            'userId': user.uid,
-            'email': user.email,
-            'timestamp': FieldValue.serverTimestamp(),
-          });
+        final email = SupabaseService.currentEmail ?? 'Anonymous Student';
+        await SupabaseService.submitFeedback(
+          feedback: feedback,
+          email: email,
+        );
 
+        if (context.mounted) {
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('Thank You'),
-              content: const Text('Thank you for your feedback.'),
+              content: const Text('Thank you for your feedback! It has been submitted.'),
               actions: [
                 TextButton(
                   onPressed: () {
-                    Navigator.of(context)
-                        .pop(); // Close the dialog
-                    Navigator.of(context).pushReplacement(MaterialPageRoute(
-                      builder: (context) => const StudentHomeScreen(),
-                    )); // Navigate back to home screen
+                    feedbackController.clear();
+                    Navigator.of(context).pop();
                   },
                   child: const Text('OK'),
                 ),
               ],
             ),
           );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('You need to be logged in to submit feedback.')),
-          );
         }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving feedback: ${e.toString()}')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error saving feedback: ${e.toString()}')),
+          );
+        }
       }
     }
 
@@ -171,6 +162,11 @@ class HomePageContent extends StatelessWidget {
             const Text(
               "Welcome to TrackItRide",
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Signed in as: ${SupabaseService.currentEmail ?? 'Student'}",
+              style: const TextStyle(fontSize: 14, color: Colors.grey),
             ),
             const SizedBox(height: 16),
             const Text(
@@ -206,7 +202,7 @@ class HomePageContent extends StatelessWidget {
               ),
               child: const Text(
                 'Submit Feedback',
-                style: TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 16, color: Colors.white),
               ),
             ),
           ],

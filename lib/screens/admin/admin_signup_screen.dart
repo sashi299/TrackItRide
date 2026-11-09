@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
 
@@ -20,30 +19,26 @@ class _AdminSignupScreenState extends State<AdminSignupScreen> {
 
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
+  bool _isLoading = false;
 
-  bool isValidPassword(String password) {
-    return RegExp(r'^(?=.*[A-Z])(?=.*\W)(?=.*[a-z]).{8,}$').hasMatch(password);
-  }
-
-  Future<void> handleSignup() async {
+  Future<void> _signUp() async {
     if (_formKey.currentState?.validate() ?? false) {
+      setState(() => _isLoading = true);
       try {
-        final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        await SupabaseService.signUp(
           email: emailController.text.trim(),
           password: passwordController.text.trim(),
+          role: 'admin',
+          name: nameController.text.trim(),
         );
 
-        await FirebaseFirestore.instance.collection('admins').doc(userCredential.user?.uid).set({
-          'name': nameController.text,
-          'email': emailController.text,
-          'createdAt': Timestamp.now(),
-        });
+        if (!mounted) return;
 
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Sign Up Successful'),
-            content: const Text('Your account has been created successfully!'),
+            content: const Text('Admin account created successfully in Supabase!'),
             actions: [
               TextButton(
                 onPressed: () {
@@ -59,10 +54,19 @@ class _AdminSignupScreenState extends State<AdminSignupScreen> {
             ],
           ),
         );
-      } on FirebaseAuthException catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Signup failed: ${e.message}')),
-        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Signup failed: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }
@@ -79,53 +83,27 @@ class _AdminSignupScreenState extends State<AdminSignupScreen> {
             child: Column(
               children: [
                 CustomTextField(
-                  label: 'Name',
+                  label: 'Full Name',
                   controller: nameController,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Name is required';
-                    }
-                    return null;
-                  },
+                  validator: (value) => value == null || value.trim().isEmpty ? 'Name is required' : null,
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  label: 'Email',
+                  label: 'Admin Email',
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Email is required';
-                    } else if (!value.endsWith('@kletech.ac.in')) {
-                      return 'Email must end with @kletech.ac.in';
-                    }
-                    return null;
-                  },
+                  validator: (value) => value == null || !value.contains('@') ? 'Valid email required' : null,
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  label: 'Password',
+                  label: 'Password (min 6 chars)',
                   controller: passwordController,
                   obscureText: !_passwordVisible,
                   suffixIcon: IconButton(
-                    icon: Icon(
-                      _passwordVisible ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _passwordVisible = !_passwordVisible;
-                      });
-                    },
+                    icon: Icon(_passwordVisible ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Password is required';
-                    } else if (!isValidPassword(value)) {
-                      return 'Password must include uppercase, special character, and be 8+ characters';
-                    }
-                    return null;
-                  },
+                  validator: (value) => value == null || value.length < 6 ? 'Password must be 6+ chars' : null,
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
@@ -133,30 +111,18 @@ class _AdminSignupScreenState extends State<AdminSignupScreen> {
                   controller: confirmPasswordController,
                   obscureText: !_confirmPasswordVisible,
                   suffixIcon: IconButton(
-                    icon: Icon(
-                      _confirmPasswordVisible ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _confirmPasswordVisible = !_confirmPasswordVisible;
-                      });
-                    },
+                    icon: Icon(_confirmPasswordVisible ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _confirmPasswordVisible = !_confirmPasswordVisible),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please confirm your password';
-                    } else if (value != passwordController.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
+                  validator: (value) => value != passwordController.text ? 'Passwords do not match' : null,
                 ),
                 const SizedBox(height: 30),
-                CustomButton(
-                  label: 'Sign Up',
-                  onPressed: handleSignup,
-                ),
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : CustomButton(
+                        label: 'Create Admin Account',
+                        onPressed: _signUp,
+                      ),
               ],
             ),
           ),

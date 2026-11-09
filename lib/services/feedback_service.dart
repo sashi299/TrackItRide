@@ -1,22 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'supabase_service.dart';
 
 class FeedbackService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
   Future<void> submitFeedback(String userId, String feedbackText, String userType) async {
-    await _firestore.collection('feedback').add({
-      'userId': userId,
-      'feedbackText': feedbackText,
-      'userType': userType, // 'student' or 'driver'
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    await SupabaseService.submitFeedback(
+      feedback: feedbackText,
+      email: userId,
+    );
   }
 
-  Stream<QuerySnapshot> getFeedback(String userType) {
-    return _firestore
-        .collection('feedback')
-        .where('userType', isEqualTo: userType)
-        .orderBy('timestamp', descending: true)
-        .snapshots();
+  Future<List<Map<String, dynamic>>> getFeedbackList() async {
+    return await SupabaseService.getFeedbacks();
   }
 }

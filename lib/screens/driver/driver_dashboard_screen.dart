@@ -1,14 +1,12 @@
-import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import '../../shared/theme.dart'; // Import custom AppTheme colors
-import 'driver_profile_screen.dart'; // Profile screen
-import 'driver_view_feedback_screen.dart'; // Feedback screen
-import 'driver_route_overview_screen.dart'; // Route overview screen
+import '../../services/supabase_service.dart';
+import '../../services/gps_tracking_service.dart';
+import '../../shared/theme.dart';
+import 'driver_profile_screen.dart';
+import 'driver_view_feedback_screen.dart';
+import 'driver_route_overview_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -19,32 +17,16 @@ class DriverDashboardScreen extends StatefulWidget {
 
 class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   int _selectedIndex = 0;
-  late Future<Map<String, dynamic>> driverAssignment;
-  String? driverEmail = FirebaseAuth.instance.currentUser?.email;
-
-  Future<Map<String, dynamic>> fetchDriverAssignment(String email) async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('assignments')
-          .where('driverEmail', isEqualTo: email)
-          .limit(1)
-          .get();
-
-      if (snapshot.docs.isNotEmpty) {
-        return snapshot.docs.first.data();
-      }
-      return {};
-    } catch (e) {
-      print("Error: $e");
-      return {};
-    }
-  }
+  late Future<Map<String, dynamic>?> driverAssignmentFuture;
+  String? driverEmail = SupabaseService.currentEmail;
 
   @override
   void initState() {
     super.initState();
     if (driverEmail != null) {
-      driverAssignment = fetchDriverAssignment(driverEmail!);
+      driverAssignmentFuture = SupabaseService.getDriverAssignment(driverEmail!);
+    } else {
+      driverAssignmentFuture = Future.value(null);
     }
   }
 
@@ -53,39 +35,40 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
-    Navigator.pushNamedAndRemoveUntil(context, '/driver_login', (_) => false);
+    await GpsTrackingService.stopTracking();
+    await SupabaseService.signOut();
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/driver_login', (_) => false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (driverEmail == null) {
-      return const Center(child: Text("Error: Driver email not found"));
-    }
-
-    return FutureBuilder<Map<String, dynamic>>(
-      future: driverAssignment,
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: driverAssignmentFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        if (snapshot.hasError) {
-          return Scaffold(body: Center(child: Text('Error: ${snapshot.error}')));
-        }
+
         final data = snapshot.data ?? {};
+        final busNumber = data['busNumber'] ?? 'BUS-12';
+        final routeName = data['routeName'] ?? 'Main Campus Route';
+        final tripId = data['tripId'] ?? '';
+        final routeId = data['routeId'] ?? '';
 
         final List<Widget> widgetOptions = [
           DriverHomePageContent(
             key: const PageStorageKey('DriverHomePageContent'),
-            busNumber: data['busNumber'] ?? '',
-            routeName: data['routeName'] ?? '',
+            busNumber: busNumber,
+            routeName: routeName,
+            tripId: tripId,
+            routeId: routeId,
           ),
           DriverRouteOverviewScreen(
-            driverEmail: driverEmail!,
-            busNumber: data['busNumber'] ?? '',
-            routeName: data['routeName'] ?? '',
-            busId: data['busId'] ?? '',
-            routeId: data['routeId'] ?? '',
+            driverEmail: driverEmail ?? '',
+            busNumber: busNumber,
+            routeName: routeName,
           ),
           const DriverProfileScreen(),
           const DriverViewFeedbackScreen(),
@@ -99,6 +82,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               IconButton(
                 icon: const Icon(Icons.logout),
                 onPressed: _logout,
+                tooltip: 'Logout',
               ),
             ],
           ),
@@ -108,7 +92,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           ),
           bottomNavigationBar: BottomNavigationBar(
             items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Console'),
               BottomNavigationBarItem(icon: Icon(Icons.directions_bus), label: 'Route'),
               BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
               BottomNavigationBarItem(icon: Icon(Icons.feedback), label: 'Feedback'),
@@ -129,8 +113,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 class DriverHomePageContent extends StatefulWidget {
   final String busNumber;
   final String routeName;
+  final String tripId;
+  final String routeId;
 
-  const DriverHomePageContent({required this.busNumber, required this.routeName, super.key});
+  const DriverHomePageContent({
+    required this.busNumber,
+    required this.routeName,
+    required this.tripId,
+    required this.routeId,
+    super.key,
+  });
 
   @override
   _DriverHomePageContentState createState() => _DriverHomePageContentState();
@@ -140,141 +132,96 @@ class _DriverHomePageContentState extends State<DriverHomePageContent> {
   bool _isTracking = false;
   Position? _currentLocation;
   GoogleMapController? _mapController;
-  Timer? _locationUpdateTimer;
   final Set<Polyline> _polylines = {};
   final Set<Marker> _markers = {};
   List<LatLng> routeCoordinates = [];
-  List<LatLng> traveledCoordinates = [];
-
-  Future<void> _getRoutePolyline() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('routes')
-          .where('route', isEqualTo: widget.routeName)
-          .limit(1)
-          .get();
-
-      if (snapshot.docs.isNotEmpty) {
-        final routeData = snapshot.docs.first.data();
-        List<LatLng> coordinates = [];
-        routeData['trips'].forEach((trip, stops) {
-          stops.forEach((stop) {
-            final coords = stop['coordinates'].split(', ');
-            coordinates.add(LatLng(double.parse(coords[0]), double.parse(coords[1])));
-
-            // Add stop markers
-            _markers.add(Marker(
-              markerId: MarkerId(stop['stop'] ?? 'Unknown Stop'),
-              position: LatLng(double.parse(coords[0]), double.parse(coords[1])),
-              icon: BitmapDescriptor.defaultMarker, // Default marker for stops
-              infoWindow: InfoWindow(
-                title: stop['stop'],
-                snippet: "Stop Location",
-              ),
-            ));
-          });
-        });
-
-        setState(() {
-          routeCoordinates = coordinates;
-          _polylines.add(Polyline(
-            polylineId: const PolylineId('remainingPolyline'),
-            points: routeCoordinates,
-            color: Colors.blue,
-            width: 5,
-          ));
-        });
-      }
-    } catch (e) {
-      print("Error fetching route polyline: $e");
-    }
-  }
-
-  Future<void> _startTracking() async {
-    var permissionStatus = await Permission.location.request();
-    if (!permissionStatus.isGranted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location permission denied!')));
-      return;
-    }
-
-    setState(() {
-      _isTracking = true;
-    });
-
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      final LatLng currentLatLng = LatLng(position.latitude, position.longitude);
-
-      traveledCoordinates.add(currentLatLng);
-
-      List<LatLng> remainingCoordinates = routeCoordinates.where((point) {
-        return !traveledCoordinates.contains(point);
-      }).toList();
-
-      await FirebaseFirestore.instance.collection('driver_locations').add({
-        'driverEmail': FirebaseAuth.instance.currentUser?.email,
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      setState(() {
-        _currentLocation = position;
-
-        _markers.removeWhere((marker) => marker.markerId.value == 'driverLocation');
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('driverLocation'),
-            position: currentLatLng,
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue), // Blue marker for driver
-            infoWindow: InfoWindow(
-              title: "Driver's Location",
-              snippet: "Lat: ${currentLatLng.latitude}, Lng: ${currentLatLng.longitude}",
-            ),
-          ),
-        );
-
-        _polylines.clear();
-        _polylines.add(Polyline(
-          polylineId: const PolylineId('traveledPolyline'),
-          points: traveledCoordinates,
-          color: Colors.green,
-          width: 5,
-        ));
-        _polylines.add(Polyline(
-          polylineId: const PolylineId('remainingPolyline'),
-          points: remainingCoordinates,
-          color: Colors.blue,
-          width: 5,
-        ));
-      });
-
-      if (_mapController != null) {
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLng(currentLatLng),
-        );
-      }
-    });
-  }
-
-  Future<void> _stopTracking() async {
-    _locationUpdateTimer?.cancel();
-    setState(() {
-      _isTracking = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip stopped.')));
-  }
-
-  @override
-  void dispose() {
-    _locationUpdateTimer?.cancel();
-    super.dispose();
-  }
 
   @override
   void initState() {
     super.initState();
-    _getRoutePolyline();
+    _loadRouteStops();
+  }
+
+  Future<void> _loadRouteStops() async {
+    try {
+      final routes = await SupabaseService.getRoutes();
+      if (routes.isNotEmpty) {
+        final r = routes.first;
+        final stops = await SupabaseService.getStopsForRoute(r['id']);
+        List<LatLng> coords = [];
+        for (var stop in stops) {
+          final lat = (stop['latitude'] as num).toDouble();
+          final lng = (stop['longitude'] as num).toDouble();
+          final pos = LatLng(lat, lng);
+          coords.add(pos);
+          _markers.add(Marker(
+            markerId: MarkerId(stop['id']),
+            position: pos,
+            infoWindow: InfoWindow(title: stop['name'] ?? 'Stop'),
+          ));
+        }
+
+        if (coords.isNotEmpty) {
+          setState(() {
+            routeCoordinates = coords;
+            _polylines.add(Polyline(
+              polylineId: const PolylineId('routePolyline'),
+              points: coords,
+              color: Colors.blue,
+              width: 5,
+            ));
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  Future<void> _startTracking() async {
+    final success = await GpsTrackingService.startTracking(
+      tripId: widget.tripId.isNotEmpty ? widget.tripId : 'active-trip',
+      onLocationUpdate: (Position pos) {
+        if (!mounted) return;
+        final latLng = LatLng(pos.latitude, pos.longitude);
+        setState(() {
+          _currentLocation = pos;
+          _markers.removeWhere((m) => m.markerId.value == 'driverLocation');
+          _markers.add(Marker(
+            markerId: const MarkerId('driverLocation'),
+            position: latLng,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+            infoWindow: const InfoWindow(title: "My Bus (Live GPS)"),
+          ));
+        });
+        _mapController?.animateCamera(CameraUpdate.newLatLng(latLng));
+      },
+    );
+
+    if (success) {
+      if (mounted) {
+        setState(() => _isTracking = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Trip started! Live GPS streaming to Supabase.')),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start tracking. Please grant location permissions.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopTracking() async {
+    await GpsTrackingService.stopTracking();
+    setState(() => _isTracking = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Trip ended. Location streaming stopped.')),
+      );
+    }
   }
 
   @override
@@ -287,24 +234,46 @@ class _DriverHomePageContentState extends State<DriverHomePageContent> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Welcome!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              Text("Bus Number: ${widget.busNumber}"),
-              const SizedBox(height: 10),
-              Text("Route Name: ${widget.routeName}"),
-              const SizedBox(height: 20),
+              Text(
+                "Driver: ${SupabaseService.currentEmail ?? 'Active'}",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Chip(
+                    avatar: const Icon(Icons.directions_bus, size: 18, color: Colors.white),
+                    label: Text(widget.busNumber, style: const TextStyle(color: Colors.white)),
+                    backgroundColor: AppTheme.primaryColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Chip(
+                    avatar: const Icon(Icons.alt_route, size: 18),
+                    label: Text(widget.routeName),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  ElevatedButton(
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.play_arrow),
                     onPressed: _isTracking ? null : _startTracking,
-                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-                    child: const Text('Start Trip'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    label: const Text('Start Trip', style: TextStyle(color: Colors.white)),
                   ),
-                  ElevatedButton(
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.stop),
                     onPressed: _isTracking ? _stopTracking : null,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    child: const Text('Stop Trip'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    label: const Text('Stop Trip', style: TextStyle(color: Colors.white)),
                   ),
                 ],
               ),
@@ -316,12 +285,13 @@ class _DriverHomePageContentState extends State<DriverHomePageContent> {
             initialCameraPosition: CameraPosition(
               target: _currentLocation != null
                   ? LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
-                  : const LatLng(0, 0),
+                  : const LatLng(12.9716, 77.5946),
               zoom: 14,
             ),
             onMapCreated: (controller) => _mapController = controller,
             polylines: _polylines,
             markers: _markers,
+            myLocationEnabled: true,
           ),
         ),
       ],

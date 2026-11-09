@@ -1,45 +1,69 @@
 plugins {
-    id "com.android.application" // Android app plugin
-    id 'com.google.gms.google-services' // Firebase plugin
-    id "kotlin-android" // Kotlin support
-    id "dev.flutter.flutter-gradle-plugin" // Flutter Gradle plugin
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
 }
 
-apply plugin: 'com.android.application'
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
 
 android {
-    compileSdkVersion 30
-    defaultConfig {
-        applicationId "com.example.myapp"
-        minSdkVersion 16
-        targetSdkVersion 30
-        versionCode 1
-        versionName "1.0"
-    }
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
+    namespace "com.example.campus_go"
+    compileSdkVersion 36
+    ndkVersion = "28.2.13676358"
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = '17'
     }
 
-    lintOptions {
-        checkReleaseBuilds false
-        abortOnError false
+    defaultConfig {
+        applicationId "com.example.campus_go"
+        minSdkVersion flutter.minSdkVersion
+        targetSdkVersion 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("cbts-release.keystore")
+            storePassword "cbts2026release"
+            keyAlias "cbts"
+            keyPassword "cbts2026release"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
     }
 }
 
 flutter {
-    source = "../.." // Specifies the Flutter project source directory
+    source '../..'
 }
-
-// Firebase and other configurations
-apply plugin: 'com.google.gms.google-services' // Ensures Firebase is properly configured

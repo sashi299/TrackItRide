@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
 
@@ -12,40 +12,32 @@ class AdminForgotPasswordScreen extends StatefulWidget {
 }
 
 class _AdminForgotPasswordScreenState extends State<AdminForgotPasswordScreen> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
   final emailController = TextEditingController();
-  bool isResetLinkSent = false;
+  bool _isLoading = false;
 
-  // Function to send password reset link
   Future<void> sendResetLink() async {
     final email = emailController.text.trim();
 
-    // Validate email format and domain
-    if (!email.endsWith('@kletech.ac.in')) {
+    if (email.isEmpty || !email.contains('@')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please use a valid kletech.ac.in email.'),
-        ),
+        const SnackBar(content: Text('Please enter a valid email address.')),
       );
       return;
     }
 
+    setState(() => _isLoading = true);
     try {
-      // Attempt to send a password reset email
-      await _auth.sendPasswordResetEmail(email: email);
+      await SupabaseService.resetPassword(email);
 
-      setState(() {
-        isResetLinkSent = true; // Update UI to reflect reset link was sent
-      });
+      if (!mounted) return;
 
-      // Show success dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Password Reset Email Sent'),
-          content: const Text(
-              'A password reset email has been sent to your registered email address. '
-              'Please check your inbox and follow the instructions to reset your password.'),
+          content: Text(
+            'A Supabase password reset link has been sent to $email.',
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -56,53 +48,42 @@ class _AdminForgotPasswordScreenState extends State<AdminForgotPasswordScreen> {
           ],
         ),
       );
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found') {
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email not found.')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.message}')),
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Forgot Password'),
-        backgroundColor: const Color.fromARGB(119, 20, 80, 198),
-      ),
-      body: SingleChildScrollView(
+      appBar: AppBar(title: const Text('Admin Password Recovery')),
+      body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!isResetLinkSent) ...[
-              CustomTextField(
-                label: 'Email',
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 30),
-              CustomButton(
-                label: 'Send Reset Link',
-                onPressed: sendResetLink,
-              ),
-            ],
-            if (isResetLinkSent)
-              const Text(
-                'A password reset link has been sent to your email address. '
-                'Please follow the instructions in the email to reset your password.',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
+            CustomTextField(
+              label: 'Admin Email',
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 30),
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : CustomButton(
+                    label: 'Send Recovery Email',
+                    onPressed: sendResetLink,
+                  ),
           ],
         ),
       ),

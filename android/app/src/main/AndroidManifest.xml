@@ -1,4 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.campus_go">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
     <application
         android:label="campus_go"
         android:name="${applicationName}"
@@ -10,7 +16,7 @@
             android:value="AIzaSyA9gdRiXld_xeoj1dec5oDBQJMj3t8T9Oo" />
         
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.campus_go.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

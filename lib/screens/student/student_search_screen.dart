@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../services/supabase_service.dart';
 
 class StudentSearchScreen extends StatefulWidget {
   const StudentSearchScreen({super.key});
@@ -9,185 +9,107 @@ class StudentSearchScreen extends StatefulWidget {
 }
 
 class _StudentSearchScreenState extends State<StudentSearchScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String query = "";
   List<Map<String, dynamic>> routes = [];
-  List<bool> _expanded = []; // List to track expansion states
+  Map<String, List<Map<String, dynamic>>> routeStops = {};
+  bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    fetchRoutes();
+    fetchRoutesAndStops();
   }
 
-  // Fetching all routes from Firestore
-  Future<void> fetchRoutes() async {
+  Future<void> fetchRoutesAndStops() async {
     try {
-      QuerySnapshot routeSnapshot = await _firestore.collection('routes').get();
-      setState(() {
-        routes = routeSnapshot.docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          return {
-            'id': doc.id,
-            'route': data['route'] ?? 'Unnamed Route',
-            'trips': {
-              'trip1': data['trips']?['trip1'] ?? [],
-              'trip2': data['trips']?['trip2'] ?? [],
-            },
-          };
-        }).toList();
+      final fetchedRoutes = await SupabaseService.getRoutes();
+      final Map<String, List<Map<String, dynamic>>> stopsMap = {};
 
-        // Sort routes by route name
-        routes.sort((a, b) => a['route'].compareTo(b['route']));
+      for (var route in fetchedRoutes) {
+        final stops = await SupabaseService.getStopsForRoute(route['id']);
+        stopsMap[route['id']] = stops;
+      }
 
-        // Initialize expanded states based on number of routes
-        _expanded = List<bool>.filled(routes.length, false);
-      });
+      if (mounted) {
+        setState(() {
+          routes = fetchedRoutes;
+          routeStops = stopsMap;
+          isLoading = false;
+        });
+      }
     } catch (e) {
-      debugPrint("Error fetching routes: $e");
-      setState(() {
-        routes = [];
-      });
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final filteredRoutes = routes.where((route) {
-      return route["route"].toLowerCase().contains(query.toLowerCase()) ||
-          (route["trips"]['trip1'] as List).any((stop) =>
-              (stop["stop"] ?? '').toLowerCase().contains(query.toLowerCase())) ||
-          (route["trips"]['trip2'] as List).any((stop) =>
-              (stop["stop"] ?? '').toLowerCase().contains(query.toLowerCase()));
+      final routeNameMatches = (route['name'] ?? '').toString().toLowerCase().contains(query.toLowerCase());
+      final routeCodeMatches = (route['code'] ?? '').toString().toLowerCase().contains(query.toLowerCase());
+      final stops = routeStops[route['id']] ?? [];
+      final stopMatches = stops.any((s) => (s['name'] ?? '').toString().toLowerCase().contains(query.toLowerCase()));
+      return routeNameMatches || routeCodeMatches || stopMatches;
     }).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Search Bus Routes"),
-        backgroundColor: Theme.of(context).primaryColor,
+        title: const Text('Search Routes & Stops'),
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(12.0),
             child: TextField(
-              decoration: const InputDecoration(
-                hintText: "Search for a route or stop...",
-                border: OutlineInputBorder(),
+              onChanged: (value) => setState(() => query = value),
+              decoration: InputDecoration(
+                hintText: 'Search by route name, code, or stop...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                filled: true,
+                fillColor: Colors.grey.shade100,
               ),
-              onChanged: (value) {
-                setState(() {
-                  query = value;
-                });
-              },
             ),
           ),
           Expanded(
-            child: filteredRoutes.isEmpty
-                ? const Center(child: Text("No routes found"))
-                : ListView.builder(
-                    itemCount: filteredRoutes.length,
-                    itemBuilder: (context, routeIndex) {
-                      final route = filteredRoutes[routeIndex];
-                      return Card(
-                        margin: const EdgeInsets.all(10),
-                        child: ExpansionTile(
-                          initiallyExpanded: _expanded[routeIndex],
-                          onExpansionChanged: (bool expanded) {
-                            setState(() {
-                              _expanded[routeIndex] = expanded;
-                            });
-                          },
-                          title: Text(
-                            route["route"],
-                            style: TextStyle(
-                              fontSize: 18.0,
-                              fontWeight: FontWeight.bold,
-                              color: query.isNotEmpty &&
-                                      route["route"]
-                                          .toLowerCase()
-                                          .contains(query.toLowerCase())
-                                  ? Colors.red
-                                  : Colors.black,
-                            ),
-                          ),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Trip 1',
-                                      style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 8),
-                                  for (var stop in route['trips']['trip1'])
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            stop['stop'] ?? 'Unknown Stop',
-                                            style: TextStyle(
-                                              color: query.isNotEmpty &&
-                                                      (stop['stop'] ?? '')
-                                                          .toLowerCase()
-                                                          .contains(query
-                                                              .toLowerCase())
-                                                  ? Colors.red
-                                                  : Colors.black,
-                                            ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
-                                            stop['timing'] ?? 'N/A',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  const SizedBox(height: 16),
-                                  const Text('Trip 2',
-                                      style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 8),
-                                  for (var stop in route['trips']['trip2'])
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            stop['stop'] ?? 'Unknown Stop',
-                                            style: TextStyle(
-                                              color: query.isNotEmpty &&
-                                                      (stop['stop'] ?? '')
-                                                          .toLowerCase()
-                                                          .contains(query
-                                                              .toLowerCase())
-                                                  ? Colors.red
-                                                  : Colors.black,
-                                            ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
-                                            stop['timing'] ?? 'N/A',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                ],
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filteredRoutes.isEmpty
+                    ? const Center(child: Text('No matching routes found.'))
+                    : ListView.builder(
+                        itemCount: filteredRoutes.length,
+                        itemBuilder: (context, index) {
+                          final route = filteredRoutes[index];
+                          final stops = routeStops[route['id']] ?? [];
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                            child: ExpansionTile(
+                              title: Text(
+                                route['name'] ?? 'Route',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
+                              subtitle: Text('Code: ${route['code']} • ${stops.length} stops'),
+                              children: stops.map((stop) {
+                                return ListTile(
+                                  dense: true,
+                                  leading: CircleAvatar(
+                                    radius: 10,
+                                    child: Text(
+                                      '${stop['sequence_no']}',
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ),
+                                  title: Text(stop['name'] ?? 'Stop'),
+                                  trailing: Text(stop['scheduled_morning'] ?? ''),
+                                );
+                              }).toList(),
                             ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),

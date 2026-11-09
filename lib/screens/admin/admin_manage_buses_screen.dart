@@ -1,6 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'admin_register_bus_screen.dart'; // Import the registration screen for bus
+import '../../services/supabase_service.dart';
+import 'admin_register_bus_screen.dart';
 
 class AdminManageBusesScreen extends StatefulWidget {
   const AdminManageBusesScreen({super.key});
@@ -10,22 +10,38 @@ class AdminManageBusesScreen extends StatefulWidget {
 }
 
 class _AdminManageBusesScreenState extends State<AdminManageBusesScreen> {
-  // Deleting a bus from the database
+  late Future<List<Map<String, dynamic>>> _busesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBuses();
+  }
+
+  void _loadBuses() {
+    setState(() {
+      _busesFuture = SupabaseService.getBuses();
+    });
+  }
+
   Future<void> deleteBus(String busId) async {
     try {
-      await FirebaseFirestore.instance.collection('buses').doc(busId).delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bus deleted successfully!')),
-      );
+      await SupabaseService.deleteBus(busId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bus deleted successfully from Supabase!')),
+        );
+        _loadBuses();
+      }
     } catch (e) {
-      print('Error deleting bus: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error deleting bus. Please try again.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting bus: ${e.toString()}')),
+        );
+      }
     }
   }
 
-  // Confirm delete action before deletion
   void _confirmDeleteBus(String busId) {
     showDialog(
       context: context,
@@ -34,17 +50,15 @@ class _AdminManageBusesScreenState extends State<AdminManageBusesScreen> {
         content: const Text('Are you sure you want to delete this bus?'),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-            },
+            onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
-              deleteBus(busId);
               Navigator.of(ctx).pop();
+              deleteBus(busId);
             },
-            child: const Text('Delete'),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -56,64 +70,69 @@ class _AdminManageBusesScreenState extends State<AdminManageBusesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Buses'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadBuses,
+          ),
+        ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('buses') // Fetching buses from Firestore
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _busesFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
-            return const Center(child: Text('Error loading buses.'));
+            return Center(child: Text('Error loading buses: ${snapshot.error}'));
           }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No buses available.'));
+          final busList = snapshot.data ?? [];
+          if (busList.isEmpty) {
+            return const Center(child: Text('No buses available in Supabase. Tap + to add.'));
           }
-
-          final busList = snapshot.data!.docs;
 
           return ListView.builder(
             itemCount: busList.length,
+            padding: const EdgeInsets.all(8.0),
             itemBuilder: (context, index) {
               final bus = busList[index];
-              final busId = bus.id; // Get the bus document ID
-              final busNumber = bus['busNumber'];
-              final numberPlate = bus['numberPlate'];
+              final busId = bus['id'];
+              final busNumber = bus['code'] ?? 'BUS';
+              final numberPlate = bus['label'] ?? '';
 
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                 child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Colors.blue,
+                    child: Icon(Icons.directions_bus, color: Colors.white),
+                  ),
                   title: Text('Bus Number: $busNumber'),
-                  subtitle: Text('Number Plate: $numberPlate'),
+                  subtitle: Text('Plate: $numberPlate • Capacity: ${bus['capacity'] ?? 40}'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Edit Button
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () {
-                          // Navigate to the Edit screen and pass the bus data
-                          Navigator.push(
+                        onPressed: () async {
+                          await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => AdminRegisterBusScreen(
-                                busId: busId, // Pass busId for editing
-                                busNumber: busNumber, // Pass busNumber for editing
-                                numberPlate: numberPlate, // Pass numberPlate for editing
+                                busId: busId,
+                                busNumber: busNumber,
+                                numberPlate: numberPlate,
                               ),
                             ),
                           );
+                          _loadBuses();
                         },
                       ),
-                      // Delete Button
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => _confirmDeleteBus(busId), // Show confirmation dialog
+                        onPressed: () => _confirmDeleteBus(busId),
                       ),
                     ],
                   ),
@@ -124,12 +143,12 @@ class _AdminManageBusesScreenState extends State<AdminManageBusesScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Navigate to the Bus Registration screen
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const AdminRegisterBusScreen()),
           );
+          _loadBuses();
         },
         child: const Icon(Icons.add),
       ),

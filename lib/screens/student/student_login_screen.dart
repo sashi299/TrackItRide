@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
 
@@ -13,26 +13,77 @@ class StudentLoginScreen extends StatefulWidget {
 class _StudentLoginScreenState extends State<StudentLoginScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
-  final _auth = FirebaseAuth.instance;
+  bool _passwordVisible = false;
+  bool _isLoading = false;
 
-  bool _passwordVisible = false; // Flag for password visibility
-
-  // Handle login logic
   Future<void> handleLogin() async {
-    try {
-      // Attempt login with email and password
-      await _auth.signInWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
 
-      // Navigate to Home Screen after successful login
-      Navigator.pushReplacementNamed(context, '/student_home');
-    } on FirebaseAuthException catch (e) {
-      // Show error message if login fails
+    if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Login failed', style: const TextStyle(color: Colors.red))),
+        const SnackBar(content: Text('Please enter both email and password.')),
       );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await SupabaseService.signIn(email: email, password: password);
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/student_home');
+      }
+    } catch (e) {
+      if (mounted) {
+        final errStr = e.toString();
+        String message = 'Login failed: $errStr';
+        SnackBarAction? action;
+
+        if (errStr.contains('email_not_confirmed')) {
+          message = 'Email not confirmed yet! Please check your Gmail inbox (including Spam folder) or tap RESEND.';
+          action = SnackBarAction(
+            label: 'RESEND',
+            textColor: Colors.yellow,
+            onPressed: () async {
+              try {
+                await SupabaseService.resendConfirmation(email: email);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Confirmation email resent! Please check your Gmail.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (resendErr) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to resend: $resendErr'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+          );
+        } else if (errStr.contains('Invalid login credentials')) {
+          message = 'Invalid email or password. Please verify your credentials.';
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+            action: action,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -40,19 +91,17 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Student Login')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Email Text Field
             CustomTextField(
               label: 'Email',
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 16),
-            // Password Text Field
             CustomTextField(
               label: 'Password',
               controller: passwordController,
@@ -70,19 +119,18 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
               ),
             ),
             const SizedBox(height: 30),
-            // Login Button
-            CustomButton(
-              label: 'Login',
-              onPressed: handleLogin, // Use the handleLogin function
-            ),
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : CustomButton(
+                    label: 'Login',
+                    onPressed: handleLogin,
+                  ),
             const SizedBox(height: 20),
-            // Signup Link
             GestureDetector(
               onTap: () => Navigator.pushNamed(context, '/student_signup'),
               child: const Text('If not registered, Signup', style: TextStyle(color: Colors.blue)),
             ),
             const SizedBox(height: 10),
-            // Forgot Password Link
             GestureDetector(
               onTap: () => Navigator.pushNamed(context, '/student_forgot_password'),
               child: const Text('Forgot Password?', style: TextStyle(color: Colors.blue)),

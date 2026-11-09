@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/supabase_service.dart';
 import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
 
@@ -15,21 +15,30 @@ class _DriverForgotPasswordScreenState
     extends State<DriverForgotPasswordScreen> {
   final emailController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
 
   Future<void> _sendResetLink() async {
     if (_formKey.currentState?.validate() ?? false) {
+      setState(() => _isLoading = true);
       try {
-        await FirebaseAuth.instance
-            .sendPasswordResetEmail(email: emailController.text.trim());
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Password reset link sent. Check your email.'),
-          ),
-        );
-      } on FirebaseAuthException catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.message}')),
-        );
+        await SupabaseService.resetPassword(emailController.text.trim());
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Supabase reset link sent. Check your email.'),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }
@@ -37,7 +46,7 @@ class _DriverForgotPasswordScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Forgot Password')),
+      appBar: AppBar(title: const Text('Driver - Forgot Password')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -46,17 +55,19 @@ class _DriverForgotPasswordScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CustomTextField(
-                label: 'Enter your email',
+                label: 'Enter your driver email',
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) =>
                     value == null || value.isEmpty ? 'Email is required' : null,
               ),
               const SizedBox(height: 30),
-              CustomButton(
-                label: 'Send Reset Link',
-                onPressed: _sendResetLink,
-              ),
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : CustomButton(
+                      label: 'Send Reset Link',
+                      onPressed: _sendResetLink,
+                    ),
             ],
           ),
         ),
