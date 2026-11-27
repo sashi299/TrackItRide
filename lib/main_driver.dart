@@ -3,6 +3,7 @@ import 'services/supabase_service.dart';
 import 'screens/driver/driver_login_screen.dart';
 import 'screens/driver/driver_signup_screen.dart';
 import 'screens/driver/driver_forgot_password_screen.dart';
+import 'screens/driver/driver_select_bus_screen.dart';
 import 'screens/driver/driver_dashboard_screen.dart' as dashboard;
 import 'screens/driver/driver_route_overview_screen.dart' as overview;
 import 'screens/driver/driver_profile_screen.dart';
@@ -37,6 +38,8 @@ class MyApp extends StatelessWidget {
             return MaterialPageRoute(builder: (context) => const DriverSignupScreen());
           case '/driver_forgot_password':
             return MaterialPageRoute(builder: (context) => const DriverForgotPasswordScreen());
+          case '/driver_select_bus':
+            return MaterialPageRoute(builder: (context) => const DriverSelectBusScreen());
           case '/driver_dashboard':
             return MaterialPageRoute(builder: (context) => const dashboard.DriverDashboardScreen());
           case '/driver_route_overview':

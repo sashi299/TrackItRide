@@ -12,6 +12,7 @@ import 'screens/admin/admin_route_management_screen.dart';
 import 'screens/admin/admin_analytics_screen.dart';
 import 'screens/admin/admin_view_feedback_screen.dart';
 import 'screens/admin/assign_bus_route_screen.dart';
+import 'shared/role_guard.dart';
 import 'shared/theme.dart';
 
 void main() async {
@@ -38,7 +39,11 @@ class AdminApp extends StatelessWidget {
         '/admin_login': (context) => const AdminLoginScreen(),
         '/admin_signup': (context) => const AdminSignupScreen(),
         '/admin_forgot_password': (context) => const AdminForgotPasswordScreen(),
-        '/admin_dashboard': (context) => const AdminDashboardScreen(),
+        '/admin_dashboard': (context) => const RoleGuard(
+              allowedRoles: ['admin'],
+              routeName: 'Admin Console',
+              child: AdminDashboardScreen(),
+            ),
         '/admin_manage_buses': (context) => const buses_screen.AdminManageBusesScreen(),
         '/admin_manage_drivers': (context) => const drivers_screen.AdminManageDriversScreen(),
         '/admin_driver_edit': (context) => const AdminDriverEditScreen(

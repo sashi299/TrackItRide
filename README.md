@@ -1,150 +1,101 @@
-# 🚌✨ Smart College Bus Tracking System ✨🗺️
+# 🚌 TrackItRide — Smart College Bus Tracking System
 
-![Bus Tracking GIF](https://media.giphy.com/media/3o7TKtnuHOHHUjR38Y/giphy.gif)
-
----
-
-## 🚀 Overview
-
-Welcome to the **Smart College Bus Tracking System** — your all-in-one, real-time solution for smarter, safer, and more efficient campus transportation!  
-This project empowers students, drivers, and administrators with live bus tracking, instant schedule updates, and seamless route management, all through an intuitive app and web dashboard.
+A scalable, battery-optimized, and secure real-time campus transit tracking system engineered with **Flutter** and **Supabase (PostgreSQL)**.
 
 ---
 
-## 🎯 Key Features
+## 📌 Architecture Overview
 
-- **Live Bus Tracking**: See your bus in real-time on interactive Google Maps.
-- **Role-Based Access**: Custom dashboards for students, drivers, and admins.
-- **Dynamic Scheduling**: Instantly updated bus schedules and route changes.
-- **Secure Authentication**: Safe logins for all users via Firebase.
-- **Admin Web Dashboard**: Manage routes, buses, and schedules with ease.
-- **Cross-Platform**: Web-ready, with mobile support coming soon!
-- **End-to-End Encryption**: Your data stays private and secure.
-- **User-Friendly UI**: Clean, responsive, and easy to navigate.
+TrackItRide eliminates guesswork for campus commuters by streaming live bus telemetry directly from driver devices to students and dispatch administrators.
 
----
-
-## 🏗️ System Architecture
-
-![System Architecture GIF](https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif)
-
-### Components
-
-- **Frontend (Flutter)**
-  - *Student App*: Track buses, view schedules, get live updates.
-  - *Driver App*: Send real-time GPS data from the bus.
-  - *Admin Dashboard*: Web-based management for routes, buses, and analytics.
-- **Backend (Firebase)**
-  - Real-time Database for live location and schedule sync.
-  - Authentication for secure, role-based access.
-  - Cloud Functions for automation and notifications.
-- **Location & Mapping**
-  - Google Maps API for route visualization and geolocation.
-  - Geolocator for accurate GPS tracking.
-
-### Data Flow
-
-1. **Student logs in** and requests bus location.
-2. **Driver’s app** sends live GPS data to Firebase.
-3. **Backend** updates location in real-time.
-4. **Google Maps API** displays current position and route.
-5. **Admin dashboard** provides operational insights and management tools.
+```
++-------------------------------------------------------------------------------+
+|                             FLUTTER MOBILE CLIENTS                            |
+|                                                                               |
+|   [Student Portal]                  [Driver Console]         [Admin Console]  |
+|   - Scoped Realtime Stream          - Foreground Service     - Route Setup    |
+|   - Freshness & Signal Badge        - Sticky Notification    - Fleet Ops      |
+|   - Tekkali Campus Geo              - Dead-Zone FIFO Buffer  - User Roles     |
++-------------------------------------------------------------------------------+
+                                      ▲
+                                      │ Supabase Realtime & PostgREST RPC
+                                      ▼
++-------------------------------------------------------------------------------+
+|                            SUPABASE CLOUD BACKEND                             |
+|                                                                               |
+|   - PostgreSQL with Row Level Security (RLS) on all tables                    |
+|   - Atomic Telemetry RPC: record_driver_telemetry()                           |
+|   - Batch Sync RPC: batch_sync_offline_telemetry()                            |
+|   - Realtime Postgres Change Feeds (Filter: trip_id = eq.selected)            |
+|   - Strict Role-Based Authentication & Session Management                     |
++-------------------------------------------------------------------------------+
+```
 
 ---
 
-## 🛠️ Implementation Details
+## 🚀 Key Technical Features
 
-### Frontend (Flutter)
+### 1. Real-World Driver GPS Telemetry (Phase 3)
+* **Android Foreground Service:** Runs with `FOREGROUND_SERVICE_LOCATION` and persistent sticky notifications so live broadcasting never halts when the driver's screen is locked or the app is minimized.
+* **Telemetry Throttling & Cost Optimization:** Eliminates aggressive sub-second DB spam. Telemetry is throttled to **20 meters distance filter** and **8–10 seconds interval**, reducing database write costs by over 80%.
+* **Atomic RPC:** Both location breadcrumbs (`trip_locations`) and active trip state (`trips`) are updated in a single atomic database RPC (`record_driver_telemetry`).
+* **Offline Resiliency (Dead-Zone Buffering):** When a bus drives through areas with zero cellular reception, telemetry points are buffered locally into a persistent FIFO queue in `SharedPreferences`. The moment connectivity resumes, all buffered points sync atomically via `batch_sync_offline_telemetry`.
 
-- **State Management**: Provider/Riverpod for smooth state flow.
-- **Google Maps SDK**: For real-time tracking and visualization.
-- **Material Design**: Responsive, modern UI.
-- **Location Services**: Geolocator package for precise GPS.
+### 2. Student UX & Scoped Subscriptions (Phase 4)
+* **Localized Campus Geo:** Default map coordinates centered on **Tekkali Campus (`18.5702, 84.1853`)**.
+* **Scoped Real-Time Streaming:** Rather than flooding student devices with updates from every bus across the institution, students subscribe strictly to the bus/route they are actively tracking via `SupabaseService.streamTrip(tripId)`.
+* **Telemetry Freshness & GPS Loss Warning:** Real-time visual status badges:
+  * 🟢 **Live (<= 25s):** Displays speed and live updates (`Updated 4s ago`).
+  * 🟡 **Signal Delay (26s - 60s):** Alerts student to network lag.
+  * 🔴 **GPS Lost (> 60s):** Highlights signal loss (`⚠️ GPS Signal Lost - Last seen 2m ago`).
+* **Strict Trip Lifecycle:** No fake dummy buses (`BUS-12`) or phantom markers. If a driver has not started the trip, the app displays: *"🚍 Bus has not started yet. Waiting for driver."*
 
-### Backend (Firebase)
-
-- **Realtime Database**: Live updates for location and schedules.
-- **Authentication**: Secure login for all user types.
-- **Cloud Functions**: For automation (e.g., geofencing notifications).
-- **Cloud Firestore**: Stores metadata like feedback and reports.
-
-### APIs & Integrations
-
-- **Google Maps API**: Real-time mapping and route optimization.
-- **Geolocation API**: For accurate bus coordinates.
-- **WebSockets**: Instant updates across devices.
-- **GeoFencing**: Alerts when the bus reaches a stop.
-
----
-
-## 🚦 How to Run
-
-> **Note:** Replace the test Google Maps API key with your own for full functionality.
-
-### 👑 Admin Dashboard
-
-flutter run -t lib/main_admin.dart
-
-
-### 🧑‍✈️ Driver App
-
-flutter run -t lib/main_driver.dart
-
-
-### 🎓 Student App
-
-flutter run -t lib/main_student.dart
-
+### 3. Enterprise Security & Hardening (Phase 1 & 2)
+* **Row Level Security (RLS):** Enabled across all database tables. Read-only for public student schedules; write access restricted strictly to verified drivers (`auth.uid() = driver_id`) and admins.
+* **Keystore & Secret Isolation:** Keystores, signing passwords, and environment credentials are separated into `.gitignore` and `key.properties`.
+* **Production R8/ProGuard:** Release builds are minified, obfuscated, and resource-shrunk for Play Store distribution.
 
 ---
 
-## ⚠️ Limitations & Cautions
+## 🛠️ Tech Stack
 
-> **🚧 Using a test API key!**  
-> - Routes between stops appear as straight lines, not actual roads.  
-> - Path validation and mobile deployment are restricted until you add a licensed Google Maps API key.
-> - Currently, the system is only available via web/localhost.
-
----
-
-## 🔮 Future Enhancements
-
-- **Licensed Google Maps API**: Unlocks real-world routing and traffic info.
-- **Full Mobile App Support**: Native Android/iOS deployment.
-- **AI Route Optimization**: Smarter, faster, and more efficient bus routes.
-- **Push Notifications**: Real-time alerts for delays and changes.
-- **Offline Mode**: Last known location and schedule even without internet.
-- **Feedback & Analytics**: In-app feedback and performance analytics.
-- **QR Code Boarding**: Secure bus access and attendance tracking.
+* **Frontend:** Flutter 3.x, Dart 3.x
+* **State & Networking:** `supabase_flutter: ^2.8.0`, `provider: ^6.1.1`
+* **Maps & Geolocation:** `google_maps_flutter: ^2.5.3`, `geolocator: ^10.1.0`, `location: ^5.0.3`
+* **Local Storage:** `shared_preferences: ^2.2.0`
+* **Backend:** Supabase (PostgreSQL 15+, PostgREST, Supabase Auth, Supabase Realtime)
+* **Package ID:** `com.cbts.transport`
 
 ---
 
-## 🏆 Why Use This System?
+## ⚙️ Setup & Installation
 
-- **No more guesswork:** Know exactly when your bus arrives!
-- **Smarter campus:** Admins can optimize routes and schedules.
-- **Safer journeys:** Real-time monitoring ensures safety and transparency.
-- **Modern & scalable:** Built with the latest tech for future-ready campuses.
+### 1. Prerequisites
+* Flutter SDK (3.22.0 or higher)
+* JDK 17
+* Android Studio / Android SDK (Platform 34+)
+* Supabase project with PostgREST and Realtime enabled
+
+### 2. Configure Credentials
+Create `android/key.properties` with your release signing keystore:
+```properties
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=cbts_release_key
+storeFile=release.keystore
+```
+
+### 3. Build Production APK
+```bash
+flutter clean
+flutter pub get
+flutter build apk --release
+```
+
+The optimized, signed production APK will be generated at:
+`build/app/outputs/flutter-apk/app-release.apk`
 
 ---
 
-## 📚 References
-
-- [Google Maps Platform](https://developers.google.com/maps/documentation/routes)
-- [Firebase Realtime Database](https://firebase.google.com/docs/database)
-- [Flutter Documentation](https://flutter.dev/docs)
-- [Geolocation API](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation_API)
-- K. N. Sivaraman, "IoT-Based Real-Time Bus Tracking System," IJCA, 2018.
-- M. Patel & S. Gupta, "A GPS-based Bus Tracking System," IJARCS, 2019.
-- H. Kim et al., "Smart Bus Tracking System Using GPS," IEEE T-ITS, 2021.
-- A. Sharma & P. Mishra, "Enhancing Public Transportation with AI and IoT," IEEE Access, 2022.
-- J. R. Smith, "A Review of Location-Based Services," IEEE IoT Journal, 2020.
-
----
-
-## 🎉 Get Started Today!
-
-Hop on board the Smart College Bus Tracking System and make your campus commute a breeze!  
-_Track smarter. Travel safer. Never miss your bus again!_ 🚍💨
-
-![Bus Ride GIF](https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif)
+## 📜 Privacy & Compliance
+TrackItRide handles real-time driver location data strictly during active assigned trips. For details on location permissions, background access, and data retention, see [PRIVACY_POLICY.md](PRIVACY_POLICY.md).

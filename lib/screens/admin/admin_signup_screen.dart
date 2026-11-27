@@ -1,129 +1,117 @@
 import 'package:flutter/material.dart';
-import '../../services/supabase_service.dart';
-import '../../shared/custom_textfield.dart';
 import '../../shared/custom_button.dart';
+import '../../shared/theme.dart';
 
-class AdminSignupScreen extends StatefulWidget {
+/// Admin Signup / Policy Screen matching System 1.0 Security Policy (AM01 / SYS08 styling).
+class AdminSignupScreen extends StatelessWidget {
   const AdminSignupScreen({super.key});
-
-  @override
-  _AdminSignupScreenState createState() => _AdminSignupScreenState();
-}
-
-class _AdminSignupScreenState extends State<AdminSignupScreen> {
-  final nameController = TextEditingController();
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
-  final confirmPasswordController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  bool _passwordVisible = false;
-  bool _confirmPasswordVisible = false;
-  bool _isLoading = false;
-
-  Future<void> _signUp() async {
-    if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
-      try {
-        await SupabaseService.signUp(
-          email: emailController.text.trim(),
-          password: passwordController.text.trim(),
-          role: 'admin',
-          name: nameController.text.trim(),
-        );
-
-        if (!mounted) return;
-
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Sign Up Successful'),
-            content: const Text('Admin account created successfully in Supabase!'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/admin_login',
-                    (route) => false,
-                  );
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Signup failed: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Admin Signup')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                CustomTextField(
-                  label: 'Full Name',
-                  controller: nameController,
-                  validator: (value) => value == null || value.trim().isEmpty ? 'Name is required' : null,
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        title: const Text(
+          'Admin Registration',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.text,
+            fontFamily: 'Inter',
+          ),
+        ),
+        backgroundColor: AppTheme.surface,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.text),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                  border: Border.all(color: AppTheme.border),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x080F172A), blurRadius: 8, offset: Offset(0, 4)),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                CustomTextField(
-                  label: 'Admin Email',
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) => value == null || !value.contains('@') ? 'Valid email required' : null,
-                ),
-                const SizedBox(height: 16),
-                CustomTextField(
-                  label: 'Password (min 6 chars)',
-                  controller: passwordController,
-                  obscureText: !_passwordVisible,
-                  suffixIcon: IconButton(
-                    icon: Icon(_passwordVisible ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
-                  ),
-                  validator: (value) => value == null || value.length < 6 ? 'Password must be 6+ chars' : null,
-                ),
-                const SizedBox(height: 16),
-                CustomTextField(
-                  label: 'Confirm Password',
-                  controller: confirmPasswordController,
-                  obscureText: !_confirmPasswordVisible,
-                  suffixIcon: IconButton(
-                    icon: Icon(_confirmPasswordVisible ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _confirmPasswordVisible = !_confirmPasswordVisible),
-                  ),
-                  validator: (value) => value != passwordController.text ? 'Passwords do not match' : null,
-                ),
-                const SizedBox(height: 30),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : CustomButton(
-                        label: 'Create Admin Account',
-                        onPressed: _signUp,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySubtle,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-              ],
+                      child: const Icon(Icons.security_rounded, size: 36, color: AppTheme.primaryColor),
+                    ),
+                    const SizedBox(height: 20),
+
+                    const Text(
+                      'Restricted Registration',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.text,
+                        fontFamily: 'Inter',
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+
+                    const Text(
+                      'To maintain campus transit security and protect real-time operational controls, '
+                      'Administrator accounts cannot be registered publicly.\n\n'
+                      'Transport Administrators are provisioned directly by the institution transport officer '
+                      'via the Supabase Console.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.muted,
+                        fontFamily: 'Inter',
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+
+                    CustomButton(
+                      label: 'Return to Admin Login',
+                      height: 48,
+                      onPressed: () {
+                        Navigator.pushNamedAndRemoveUntil(
+                          context,
+                          '/admin_login',
+                          (route) => false,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    CustomButton(
+                      label: 'Go to Student App',
+                      isSecondary: true,
+                      height: 48,
+                      onPressed: () {
+                        Navigator.pushNamedAndRemoveUntil(
+                          context,
+                          '/student_login',
+                          (route) => false,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
